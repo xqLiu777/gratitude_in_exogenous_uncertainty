@@ -1,0 +1,10 @@
+*.Rdata filter=lfs diff=lfs merge=lfs -text
+*.tif filter=lfs diff=lfs merge=lfs -text
+*.tiff filter=lfs diff=lfs merge=lfs -text
+/W:2 filter=lfs diff=lfs merge=lfs -text
+*.tiffrobocopy filter=lfs diff=lfs merge=lfs -text
+E:/lxq/jupyter/LeoResearch/paper2026/code_and_data_AI_0919/audit_round2_current_sources filter=lfs diff=lfs merge=lfs -text
+. filter=lfs diff=lfs merge=lfs -text
+/E filter=lfs diff=lfs merge=lfs -text
+/COPY:DAT filter=lfs diff=lfs merge=lfs -text
+/R:2 filter=lfs diff=lfs merge=lfs -text
