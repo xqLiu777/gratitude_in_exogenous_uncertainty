@@ -1,0 +1,313 @@
+library(rstan)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+
+# =========================
+# User settings
+# =========================
+
+# Folder that contains the saved .Rdata model output.
+# Example: result_dir <- "./results"
+result_dir <- "02_results"
+
+# Folder where the figure will be saved.
+fig_dir <- "04_pic"
+# fig_dir <- "./02_fig"
+
+# Model output file saved from your sampling loop.
+model_id <- 2
+output_file <- paste0("model_ascertain_EXP3_", model_id, "_output_260410.Rdata")
+
+# Font sizes for easy adjustment.
+axis_title_x_size <- 60
+axis_title_y_size <- 60
+axis_text_x_size <- 60
+axis_text_y_size <- 60
+axis_text_x_small_size <- 40
+axis_text_x_main_vjust <- 5
+axis_text_x_sub_vjust <- 5
+axis_title_x_margin <- 50
+axis_title_y_margin <- 20
+axis_text_y_margin <- 20
+
+# Significance annotation settings.
+sig_text_size <- 20
+sig_bracket_size <- 0.8
+sig_bracket_height <- 0.04
+sig_y_offset <- 0.18
+sig_text_y_offset <- 0.09
+
+# Optional: if your workspace already has df with SubID in memory, set this to TRUE
+# before sourcing the script, or edit the subject_lookup block below.
+use_subid_from_df <- exists("df") && "SubID" %in% names(df)
+
+# =========================
+# Load model and extract posterior draws
+# =========================
+
+model_path <- file.path(result_dir, output_file)
+
+if (!file.exists(model_path)) {
+  stop("Cannot find model output file: ", model_path)
+}
+
+load(model_path)
+
+if (!exists("model_output")) {
+  stop("The loaded .Rdata file does not contain an object named `model_output`.")
+}
+
+param_names <- c("int_neg", "int_pos", "slo_neg", "slo_pos")
+post <- rstan::extract(model_output, pars = param_names)
+
+missing_params <- setdiff(param_names, names(post))
+if (length(missing_params) > 0) {
+  stop(
+    "These parameters were not found in the saved Stan output: ",
+    paste(missing_params, collapse = ", "),
+    "\nIf you used `pars = ...` with `include = FALSE`, rerun the model without excluding these parameters."
+  )
+}
+
+# Convert iterations x subjects matrices into long format.
+param_df <- lapply(param_names, function(par) {
+  mat <- post[[par]]
+
+  as.data.frame(mat) %>%
+    mutate(draw = row_number()) %>%
+    pivot_longer(
+      cols = -draw,
+      names_to = "subject_index",
+      values_to = "value"
+    ) %>%
+    mutate(
+      parameter = par,
+      subject_index = as.integer(gsub("^V", "", subject_index))
+    )
+}) %>%
+  bind_rows()
+
+# =========================
+# Summarize subject-level posterior distributions
+# =========================
+
+param_summary <- param_df %>%
+  group_by(subject_index, parameter) %>%
+  summarize(
+    mean = mean(value),
+    median = median(value),
+    lower = quantile(value, 0.025),
+    upper = quantile(value, 0.975),
+    .groups = "drop"
+  )
+
+# If df exists and has SubID, attach original subject IDs.
+# Important: this assumes subject == row_number(distinct(df, SubID)) was used
+# when creating stan_data.
+if (use_subid_from_df) {
+  subject_lookup <- df %>%
+    distinct(SubID) %>%
+    mutate(subject_index = row_number())
+
+  param_summary <- param_summary %>%
+    left_join(subject_lookup, by = "subject_index") %>%
+    mutate(subject_label = ifelse(is.na(SubID), as.character(subject_index), as.character(SubID)))
+} else {
+  param_summary <- param_summary %>%
+    mutate(subject_label = as.character(subject_index))
+}
+
+param_summary <- param_summary %>%
+  mutate(
+    parameter_key = factor(
+      parameter,
+      levels = c("int_neg", "int_pos", "slo_neg", "slo_pos"),
+      labels = c("int_neg", "int_pos", "slo_neg", "slo_pos")
+    )
+  )
+# =========================
+# Plot
+# =========================
+
+if (!dir.exists(fig_dir)) {
+  dir.create(fig_dir, recursive = TRUE)
+}
+
+param_colors <- c(
+  int_neg = "#F4A261",
+  int_pos = "#E76F51",
+  slo_neg = "#2A9D8F",
+  slo_pos = "#457B9D"
+)
+
+param_colors <- c(
+  int_neg = "#4F81BD",
+  int_pos = "#D97742",
+  slo_neg = "#2A9D8F",
+  slo_pos = "#E76F51"
+)
+
+parameter_axis_labels <- data.frame(
+  parameter_key = factor(
+    c("int_neg", "int_pos", "slo_neg", "slo_pos"),
+    levels = c("int_neg", "int_pos", "slo_neg", "slo_pos")
+  ),
+  label_main = c("Bias", "Bias", "Sensitivity", "Sensitivity"),
+  label_sub = c("PE<0", "PE>0", "PE<0", "PE>0")
+)
+
+# Paired tests across subjects, using each subject's posterior mean.
+param_wide <- param_summary %>%
+  select(subject_index, parameter_key, mean) %>%
+  pivot_wider(names_from = parameter_key, values_from = mean)
+
+p_to_stars <- function(p) {
+  ifelse(
+    p < 0.001, "***",
+    ifelse(p < 0.01, "**", ifelse(p < 0.05, "*", "n.s."))
+  )
+}
+
+p_to_plotmath <- function(p) {
+  if (p < 0.001) {
+    paste0("italic(p) < .001~'", p_to_stars(p), "'")
+  } else {
+    paste0("italic(p) == ", sprintf("%.3f", p), "~'", p_to_stars(p), "'")
+  }
+}
+
+bias_test <- t.test(param_wide$int_neg, param_wide$int_pos, paired = TRUE)
+sensitivity_test <- t.test(param_wide$slo_neg, param_wide$slo_pos, paired = TRUE)
+
+y_range <- range(param_summary$mean, na.rm = TRUE)
+y_span <- diff(y_range)
+if (y_span == 0) y_span <- 1
+
+sig_annotations <- data.frame(
+  group = c("Bias", "Sensitivity"),
+  x_start = c(1, 3),
+  x_end = c(2, 4),
+  y = max(param_summary$mean, na.rm = TRUE) + sig_y_offset * y_span + 5,
+  label = c(
+    p_to_plotmath(bias_test$p.value),
+    p_to_plotmath(sensitivity_test$p.value)
+  )
+)
+
+sig_segments <- bind_rows(
+  sig_annotations %>%
+    transmute(x = x_start, xend = x_end, y = y, yend = y),
+  sig_annotations %>%
+    transmute(x = x_start, xend = x_start, y = y, yend = y - sig_bracket_height * y_span),
+  sig_annotations %>%
+    transmute(x = x_end, xend = x_end, y = y, yend = y - sig_bracket_height * y_span)
+)
+
+p_subject_params <- ggplot(
+  param_summary,
+  aes(x = parameter_key, y = mean, fill = parameter_key, color = parameter_key)
+) +
+  geom_hline(yintercept = 0, color = "#444444", linetype = "dashed", size = 0.6) +
+  geom_violin(
+    width = 0.82,
+    alpha = 0.35,
+    size = 0.9,
+    trim = FALSE
+  ) +
+  geom_jitter(
+    width = 0.1,
+    height = 0,
+    alpha = 0.75,
+    size = 10
+  ) +
+  stat_summary(
+    fun = mean,
+    geom = "point",
+    shape = 23,
+    size = 20,
+    fill = "white",
+    color = "black",
+    stroke = 0.8
+  ) +
+  geom_segment(
+    data = sig_segments,
+    aes(x = x, xend = xend, y = y, yend = yend),
+    inherit.aes = FALSE,
+    color = "black",
+    size = sig_bracket_size
+  ) +
+  geom_text(
+    data = sig_annotations,
+    aes(x = (x_start + x_end) / 2, y = y + sig_text_y_offset * y_span, label = label),
+    inherit.aes = FALSE,
+    size = sig_text_size,
+    parse = TRUE,
+    color = "black"
+  ) +
+  scale_fill_manual(values = param_colors) +
+  scale_color_manual(values = param_colors) +
+  geom_text(
+    data = parameter_axis_labels,
+    aes(x = parameter_key, y = -Inf, label = label_main),
+    inherit.aes = FALSE,
+    size = axis_text_x_size / ggplot2::.pt,
+    vjust = axis_text_x_main_vjust,
+    color = "black"
+  ) +
+  geom_text(
+    data = parameter_axis_labels,
+    aes(x = parameter_key, y = -Inf, label = label_sub),
+    inherit.aes = FALSE,
+    size = axis_text_x_small_size / ggplot2::.pt,
+    vjust = axis_text_x_sub_vjust,
+    color = "black"
+  ) +
+  scale_y_continuous(expand = expansion(mult = c(0.08, 0.08))) +
+  coord_cartesian(clip = "off") +
+  xlab("Parameter") +
+  ylab("Subject-level posterior mean") +
+  theme_classic() +
+  theme(
+    axis.title.x = element_text(size = axis_title_x_size, margin = margin(t = axis_title_x_margin)),
+    axis.title.y = element_text(size = axis_title_y_size, margin = margin(r = axis_title_y_margin)),
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank(),
+    axis.text.y = element_text(size = axis_text_y_size, margin = margin(r = axis_text_y_margin), color = "black"),
+    axis.line = element_line(color = "black", size = 0.9),
+    legend.position = "none",
+    plot.margin = margin(t = 5.5, r = 5.5, b = 70, l = 5.5)
+  )
+
+print(p_subject_params)
+
+ggsave(
+  filename = file.path(fig_dir, paste0("model_ascertain_EXP3_", model_id, "_subject_parameters_violin_jitter_260618.svg")),
+  plot = p_subject_params,
+  width = 20,
+  height = 20,
+  units = "in",
+  dpi = 600
+)
+
+# Save the summary table too, so you can inspect or reuse the estimates.
+write.csv(
+  param_summary,
+  file = file.path(fig_dir, paste0("model_ascertain_EXP3_", model_id, "_subject_parameters_summary_260618.csv")),
+  row.names = FALSE
+)
+
+write.csv(
+  data.frame(
+    comparison = c("int_neg vs int_pos", "slo_neg vs slo_pos"),
+    t = c(unname(bias_test$statistic), unname(sensitivity_test$statistic)),
+    df = c(unname(bias_test$parameter), unname(sensitivity_test$parameter)),
+    p = c(bias_test$p.value, sensitivity_test$p.value),
+    mean_difference = c(
+      mean(param_wide$int_neg - param_wide$int_pos, na.rm = TRUE),
+      mean(param_wide$slo_neg - param_wide$slo_pos, na.rm = TRUE)
+    )
+  ),
+  file = file.path(fig_dir, paste0("model_ascertain_EXP3_", model_id, "_subject_parameter_paired_tests_260618.csv")),
+  row.names = FALSE
+)

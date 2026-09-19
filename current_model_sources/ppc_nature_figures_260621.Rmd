@@ -1,0 +1,602 @@
+```{r}
+
+## Posterior predictive checks for model ascertainment weights
+## Backend: R / ggplot2
+
+suppressPackageStartupMessages({
+  library(rstan)
+  library(tidyverse)
+  library(patchwork)
+  library(svglite)
+  library(ragg)
+  library(readxl)
+})
+
+# ============================================================
+# 1. Parameters
+# ============================================================
+
+# ---------- paths ----------
+stan_dir <- "."
+
+data_dir   <- file.path(stan_dir, "01_data")
+result_dir <- file.path(stan_dir, "02_results")
+fig_dir    <- file.path(result_dir, "ppc_figures")
+
+data_file <- file.path(data_dir, "ascertain_all_trialdata_260206.xlsx")
+data_sheet <- "Sheet1"
+
+output_file <- file.path(
+  result_dir,
+  "model_ascertain_EXP3_2_output_260410.Rdata"
+)
+
+dir.create(fig_dir, recursive = TRUE, showWarnings = FALSE)
+
+# ---------- data ----------
+subject_prefix <- "^73"
+n_subjects <- 43
+
+# ---------- PPC ----------
+set.seed(20260617)
+
+n_draw_max <- 100
+# Grand PPC
+grand_xlim <- c(-60, 60)
+
+# Individual PPC
+ind_xlim <- c(-15, 22)
+ind_ylim <- c(-15, 22)
+
+# Trial PPC
+trial_xlim <- c(-52, 60)
+trial_ylim <- c(-52, 60)
+
+# ---------- output size: inch ----------
+single_fig_width  <- 3.4
+single_fig_height <- 3.0
+
+three_panel_width  <- 10.5
+three_panel_height <- 3.4
+
+fig_dpi <- 600
+
+# ---------- colors ----------
+pal <- list(
+  true   = "#1B4E6B",
+  pred   = "#B9C1C7",
+  point  = "#2D6F8E",
+  accent = "#B64B3A",
+  text   = "#1A1A1A",
+  subtext = "#4D4D4D"
+)
+
+# ---------- font ----------
+base_family <- "Arial"
+
+# ---------- theme sizes ----------
+base_size <- 8
+
+axis_title_size <- 16
+axis_text_size  <- 16
+
+plot_title_size    <- 16
+#plot_subtitle_size <- 8
+plot_tag_size      <- 16
+
+panel_note_size <- 4.0
+
+# ---------- geoms ----------
+axis_linewidth <- 0.45
+tick_linewidth <- 0.45
+tick_length_mm <- 1.8
+
+density_pred_linewidth <- 0.22
+density_true_linewidth <- 0.75
+density_pred_alpha <- 0.28
+
+abline_linewidth <- 0.55
+
+point_stroke <- 0.25
+point_alpha_ind <- 0.86
+point_alpha_trial <- 0.18
+point_size_trial <- 0.7
+point_size_ind_max <- 3.8
+
+# ---------- margins ----------
+plot_margin_top <- 4
+plot_margin_right <- 4
+plot_margin_bottom <- 4
+plot_margin_left <- 4
+
+axis_title_x_margin <- 3
+axis_title_y_margin <- 3
+axis_text_x_margin <- 3
+axis_text_y_margin <- 3
+
+
+# ============================================================
+# 2. Helper functions
+# ============================================================
+
+theme_ppc <- function(base_size = 8, base_family = "Arial") {
+  theme_classic(base_size = base_size, base_family = base_family) +
+    theme(
+      text = element_text(colour = pal$text),
+
+      axis.line = element_line(
+        linewidth = axis_linewidth,
+        colour = "black"
+      ),
+
+      axis.ticks = element_line(
+        linewidth = tick_linewidth,
+        colour = "black"
+      ),
+
+      axis.ticks.length = unit(tick_length_mm, "mm"),
+
+      axis.title = element_text(
+        size = axis_title_size
+      ),
+
+      axis.title.x = element_text(
+        margin = margin(t = axis_title_x_margin)
+      ),
+
+      axis.title.y = element_text(
+        margin = margin(r = axis_title_y_margin)
+      ),
+
+      axis.text = element_text(
+        size = axis_text_size,
+        colour = pal$text
+      ),
+
+      axis.text.x = element_text(
+        margin = margin(t = axis_text_x_margin)
+      ),
+
+      axis.text.y = element_text(
+        margin = margin(r = axis_text_y_margin)
+      ),
+
+      plot.title = element_text(
+        size = plot_title_size,
+        face = "bold",
+        hjust = 0
+      ),
+# 
+#       plot.subtitle = element_text(
+#         size = plot_subtitle_size,
+#         colour = pal$subtext,
+#         hjust = 0
+#       ),
+
+      plot.tag = element_text(
+        size = plot_tag_size,
+        face = "bold",
+        family = base_family
+      ),
+
+      plot.margin = margin(
+        t = plot_margin_top,
+        r = plot_margin_right,
+        b = plot_margin_bottom,
+        l = plot_margin_left
+      ),
+
+      legend.position = "none",
+      panel.grid = element_blank()
+    )
+}
+
+fmt_p <- function(p) {
+  if (is.na(p)) return("P = NA")
+  if (p < 0.001) return("P < 0.001")
+  paste0("P = ", formatC(p, digits = 3, format = "f"))
+}
+
+spearman_label <- function(x, y, prefix = "Spearman") {
+  keep <- is.finite(x) & is.finite(y)
+
+  test <- suppressWarnings(
+    cor.test(
+      x[keep],
+      y[keep],
+      method = "spearman",
+      exact = FALSE
+    )
+  )
+
+  sprintf(
+    "%s rho = %.2f\n%s",
+    prefix,
+    unname(test$estimate),
+    fmt_p(test$p.value)
+  )
+}
+
+panel_note <- function(label, x = 5, y = 95) {
+  annotate(
+    "text",
+    x = x,
+    y = y,
+    label = label,
+    hjust = 0,
+    vjust = 1,
+    size = panel_note_size,
+    family = base_family,
+    colour = pal$text,
+    lineheight = 0.95
+  )
+}
+
+save_pub <- function(plot, stem, width, height, dpi = fig_dpi) {
+  file_base <- file.path(fig_dir, stem)
+
+  svglite::svglite(
+    paste0(file_base, ".svg"),
+    width = width,
+    height = height
+  )
+  print(plot)
+  dev.off()
+
+  grDevices::cairo_pdf(
+    paste0(file_base, ".pdf"),
+    width = width,
+    height = height,
+    family = base_family
+  )
+  print(plot)
+  dev.off()
+
+  ragg::agg_tiff(
+    paste0(file_base, ".tiff"),
+    width = width,
+    height = height,
+    units = "in",
+    res = dpi,
+    compression = "lzw"
+  )
+  print(plot)
+  dev.off()
+}
+
+
+# ============================================================
+# 3. Load data and model
+# ============================================================
+
+if (!file.exists(data_file)) {
+  stop("Cannot find data file: ", data_file)
+}
+
+if (!file.exists(output_file)) {
+  stop("Cannot find model output file: ", output_file)
+}
+
+data_df <- read_excel(
+  data_file,
+  sheet = data_sheet
+) %>%
+  filter(grepl(subject_prefix, as.character(SubID))) %>%
+  mutate(
+    SubID_stan = as.integer(as.factor(SubID)),
+    PE_scaled = as.numeric(scale(PE))
+  )
+
+stan_data <- list(
+  N = nrow(data_df),
+  S = n_subjects,
+  subject = data_df$SubID_stan,
+  x = data_df$PE_scaled,
+  y = data_df$alloc_var
+)
+
+load(output_file)
+
+if (!exists("model_output")) {
+  stop("The loaded RData file does not contain `model_output`.")
+}
+
+
+# ============================================================
+# 4. Extract posterior predictive samples
+# ============================================================
+
+y_true <- stan_data$y
+
+y_rep <- rstan::extract(
+  model_output,
+  pars = "y_rep"
+)$y_rep
+
+if (ncol(y_rep) != length(y_true)) {
+  stop(
+    "Length mismatch: ncol(y_rep) = ",
+    ncol(y_rep),
+    ", length(y_true) = ",
+    length(y_true)
+  )
+}
+
+y_pred_mean <- colMeans(y_rep, na.rm = TRUE)
+
+dat_ppc <- tibble(
+  subject = stan_data$subject,
+  y_true = y_true,
+  y_pred = y_pred_mean
+)
+
+subject_ppc <- dat_ppc %>%
+  group_by(subject) %>%
+  summarise(
+    mean_true = mean(y_true, na.rm = TRUE),
+    mean_pred = mean(y_pred, na.rm = TRUE),
+    n_trial = sum(is.finite(y_true) & is.finite(y_pred)),
+    .groups = "drop"
+  )
+
+n_draw <- min(n_draw_max, nrow(y_rep))
+draw_id <- sample(seq_len(nrow(y_rep)), n_draw)
+
+grand_ppc <- as_tibble(
+  t(y_rep[draw_id, , drop = FALSE]),
+  .name_repair = "minimal"
+) %>%
+  set_names(paste0("draw_", seq_len(n_draw))) %>%
+  pivot_longer(
+    cols = everything(),
+    names_to = "draw",
+    values_to = "y_pred"
+  ) %>%
+  filter(is.finite(y_pred))
+
+true_dist <- tibble(y_true = y_true) %>%
+  filter(is.finite(y_true))
+
+
+# ============================================================
+# 5. Grand-average PPC
+# ============================================================
+
+p_grand <- ggplot() +
+  geom_density(
+    data = grand_ppc,
+    aes(x = y_pred, group = draw, color = "Predicted"),
+    linewidth = density_pred_linewidth,
+    # colour = pal$pred,
+    alpha = density_pred_alpha,
+    na.rm = TRUE
+  ) +
+  geom_density(
+    data = true_dist,
+    aes(x = y_true, color="Observed"),
+    linewidth = density_true_linewidth,
+    # colour = pal$true,
+    na.rm = TRUE
+  ) +
+  scale_color_manual(
+    values = c(
+      Observed = pal$true,
+      Predicted = pal$pred
+    )
+  ) +
+  coord_cartesian(
+    xlim = grand_xlim,
+    clip = "on"
+  ) +
+  labs(
+    title = "Grand-average PPC",
+    # subtitle = paste0(n_draw, " posterior predictive draws"),
+    x = "Allocation",
+    y = "Density"
+  ) +
+  # annotate(
+  #   "text",
+  #   x = 5,
+  #   y = 0.058,
+  #   label = "Observed: blue\nPredicted: grey",
+  #   hjust = 0,
+  #   vjust = 1,
+  #   size = panel_note_size,
+  #   family = base_family,
+  #   colour = pal$text,
+  #   lineheight = 0.95
+  # ) +
+  theme_ppc()
+
+
+# ============================================================
+# 6. Individual-wise PPC
+# ============================================================
+
+label_ind <- spearman_label(
+  subject_ppc$mean_true,
+  subject_ppc$mean_pred
+)
+
+p_ind <- ggplot(
+  subject_ppc,
+  aes(x = mean_true, y = mean_pred)
+) +
+  geom_abline(
+    intercept = 0,
+    slope = 1,
+    linetype = "22",
+    linewidth = abline_linewidth,
+    colour = pal$accent
+  ) +
+  geom_point(
+    aes(size = n_trial),
+    shape = 21,
+    fill = pal$point,
+    colour = "black",
+    stroke = point_stroke,
+    alpha = point_alpha_ind
+  ) +
+  scale_size_area(max_size = point_size_ind_max) +
+  coord_cartesian(
+    xlim = ind_xlim,
+    ylim = ind_ylim,
+    clip = "on"
+  ) +
+  labs(
+    title = "Individual-wise PPC",
+    # subtitle = "Participant-level means",
+    x = "Observed mean",
+    y = "Predicted mean"
+  ) +
+  panel_note(label_ind, x = -15, y = 22) +
+  theme_ppc()
+
+
+# ============================================================
+# 7. Trial-wise PPC
+# ============================================================
+
+label_trial <- spearman_label(
+  dat_ppc$y_true,
+  dat_ppc$y_pred
+)
+
+p_trial <- ggplot(
+  dat_ppc,
+  aes(x = y_true, y = y_pred)
+) +
+  geom_abline(
+    intercept = 0,
+    slope = 1,
+    linetype = "22",
+    linewidth = abline_linewidth,
+    colour = pal$accent
+  ) +
+  geom_point(
+    colour = pal$point,
+    alpha = point_alpha_trial,
+    size = point_size_trial,
+    na.rm = TRUE
+  ) +
+  coord_cartesian(
+    xlim = trial_xlim,
+    ylim = trial_ylim,
+    clip = "on"
+  ) +
+  labs(
+    title = "Trial-wise PPC",
+    # subtitle = "Trial-level predictions",
+    x = "Observed Allocation",
+    y = "Predicted Allocation"
+  ) +
+  panel_note(label_trial, x = trial_xlim[1], y = trial_ylim[2]) +
+  theme_ppc()
+
+
+# ============================================================
+# 8. Combine
+# ============================================================
+
+ppc_figure <- p_grand + p_ind + p_trial +
+  plot_layout(
+    ncol = 3,
+    widths = c(1, 1, 1)
+  ) +
+  plot_annotation(
+    tag_levels = "A",
+    theme = theme(
+      plot.tag = element_text(
+        size = plot_tag_size,
+        face = "bold",
+        family = base_family
+      )
+    )
+  )
+
+print(p_grand)
+print(p_ind)
+print(p_trial)
+print(ppc_figure)
+
+
+# ============================================================
+# 9. Save figures
+# ============================================================
+
+save_pub(
+  p_grand,
+  "ppc_grand_average",
+  width = single_fig_width,
+  height = single_fig_height
+)
+
+save_pub(
+  p_ind,
+  "ppc_individual_wise",
+  width = single_fig_width,
+  height = single_fig_height
+)
+
+save_pub(
+  p_trial,
+  "ppc_trial_wise",
+  width = single_fig_width,
+  height = single_fig_height
+)
+
+save_pub(
+  ppc_figure,
+  "ppc_three_panel",
+  width = three_panel_width,
+  height = three_panel_height
+)
+
+
+# ============================================================
+# 10. Save source data and print correlations
+# ============================================================
+
+write_csv(
+  dat_ppc,
+  file.path(fig_dir, "ppc_trial_level_source_data.csv")
+)
+
+write_csv(
+  subject_ppc,
+  file.path(fig_dir, "ppc_subject_level_source_data.csv")
+)
+
+cat("\n=== Individual-wise PPC ===\n")
+print(
+  suppressWarnings(
+    cor.test(
+      subject_ppc$mean_true,
+      subject_ppc$mean_pred,
+      method = "spearman",
+      exact = FALSE
+    )
+  )
+)
+
+cat("\n=== Trial-wise PPC ===\n")
+print(
+  suppressWarnings(
+    cor.test(
+      dat_ppc$y_true,
+      dat_ppc$y_pred,
+      method = "spearman",
+      exact = FALSE
+    )
+  )
+)
+
+cat(
+  "\nSaved figures and source data to: ",
+  normalizePath(fig_dir),
+  "\n",
+  sep = ""
+)
+
+
+```

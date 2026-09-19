@@ -1,0 +1,998 @@
+# library
+```{r}
+
+# 加载包
+library(rstan)
+library(tidyverse)
+library(rstanarm)
+library(bayesplot)
+library(tidybayes)
+library(readxl)
+
+library(dplyr)
+library(ggplot2)
+library(grid)
+library(bruceR)
+library(cowplot)
+library(psych)
+library(tibble)
+library(corrplot)
+library(lme4)
+library(lmerTest)
+library(loo)
+
+library(HDInterval)
+library(patchwork)
+
+library(ggpubr)
+
+```
+# dir
+```{r}
+# 设置参数
+# set.seed(123)
+
+# 模拟参数
+n_subjects <- 43             # 被试数量
+# n_trials_per_subject <-  # 每个被试的试次数
+# total_trials <- n_subjects * n_trials_per_subject
+total_trials <- 2477
+
+stan_dir <- "."
+data_dir <- file.path(stan_dir, "01_data")
+result_dir <- file.path(stan_dir, "02_results")
+
+# 合并所有数据
+data_df <- read_excel(file.path(data_dir, "ascertain_all_trialdata_260206.xlsx"), sheet = "Sheet1")
+data_df <- data_df[grepl("^73", as.character(data_df$SubID)), ]
+
+```
+
+# model type1
+```{r}
+
+# 准备Stan数据
+data_df$SubID_stan <- as.integer(as.factor(data_df$SubID))
+
+data_df$PE_scaled <- as.numeric(scale(data_df$PE))
+
+stan_data <- list(
+  N = nrow(data_df),
+  S = n_subjects,
+  subject = data_df$SubID_stan,
+  x = data_df$PE_scaled,
+  y = data_df$alloc_var
+)
+```
+
+```{r}
+modelID_begin <- 42
+modelID_end <- 42
+model_files <- paste0("model_ascertain_", modelID_begin:modelID_end, "_260526.stan")
+
+
+for (i in 1:(modelID_end - modelID_begin + 1)) {
+  # message(paste("正在运行模型:", model_files[i])) # 增加进度提示
+  
+  sm <- stan_model(file = file.path(stan_dir, model_files[i]))
+  model_output <- tryCatch({
+    sampling(
+      object = sm,
+      data = stan_data,
+      iter = 8000,          # 进一步增加迭代次数 (原 4000)
+      warmup = 4000,        # 相应增加预热期
+      chains = 4,       
+      cores = 4,
+      seed = 123,           # 固定随机种子，方便结果复现
+      # 【加这一行！】告诉 Stan 剔除掉这三个巨型/冗余变量，只保存剩下的
+      # pars = c("mu", "z_int", "z_slo"), 
+      # include = FALSE,     # FALSE 表示“除了上面这几个，其他的我都要”
+      control = list(adapt_delta = 0.95,   # 默认0.8，提高到0.95-0.99
+                     max_treedepth = 15)   # 默认10，提高到12或15
+    )
+  }, error = function(e) {
+    message(paste("模型", model_files[i], "运行失败:", e$message))
+    return(NULL) # 出错时跳过，继续下一个
+  })
+  
+  # 保存结果（建议在循环内保存，防止断电丢失）
+  if (!is.null(model_output)) {
+    output_file <- paste0("model_ascertain_EXP3_", modelID_begin + i - 1,  "_output_260526.Rdata")
+    save(model_output, file = file.path(result_dir, output_file))
+  }
+
+  # 1. 提取 log_likelihood
+  log_lik_mat <- loo::extract_log_lik(model_output, parameter_name = "log_lik")
+  
+  # 2. 准备链的信息 (假设你是 4 条链)
+  n_chains <- 4 
+  n_iter <- nrow(log_lik_mat) / n_chains
+  chain_id <- rep(1:n_chains, each = n_iter)
+  r_eff <- relative_eff(exp(log_lik_mat), chain_id = chain_id)
+  
+  # 3. 【这行是救命的关键】必须加上 save_psis = TRUE ！！！
+  loo_result <- loo(log_lik_mat, r_eff = r_eff, save_psis = TRUE)
+  
+  # 4. 提取后验预测值
+  y_rep_samples <- rstan::extract(model_output)$y_rep
+  
+  # 5. 画图！直接把存下来的 psis_object 塞进去
+  p <- ppc_loo_pit_overlay(
+    y = data_df$alloc_var, 
+    yrep = y_rep_samples, 
+    psis_object = loo_result$psis_object
+  )
+  
+  print(p)
+}
+
+```
+```{r}
+
+library(rstan)
+library(loo)
+
+model_id <- 40
+
+load(file.path(
+  result_dir,
+  paste0("model_ascertain_EXP3_", model_id, "_output_260410.Rdata")
+))
+
+# 提取 log_lik
+log_lik_mat <- loo::extract_log_lik(model_output, parameter_name = "log_lik")
+
+# 计算 relative_eff
+n_chains <- 4
+n_iter <- nrow(log_lik_mat) / n_chains
+chain_id <- rep(1:n_chains, each = n_iter)
+
+r_eff <- loo::relative_eff(exp(log_lik_mat), chain_id = chain_id)
+
+# 计算 LOO
+loo_result <- loo::loo(log_lik_mat, r_eff = r_eff, save_psis = TRUE)
+
+# 查看完整结果
+print(loo_result)
+
+# 提取 looic
+looic <- loo_result$estimates["looic", "Estimate"]
+looic_se <- loo_result$estimates["looic", "SE"]
+
+looic
+looic_se
+
+
+```
+
+
+## predict value predict actual value
+```{r}
+# 1. 计算每个观测点的预测均值 (Point Estimate)
+y_rep_samples <- rstan::extract(model_output)$y_rep
+y_pred <- colMeans(y_rep_samples)
+
+# 2. 获取实际值 (对应你代码中的 data_df$alloc_var)
+y_real <- data_df$alloc_var
+
+# 3. 建立简单的回归模型 (用预测值解释实际值)
+prediction_model <- lm(y_real ~ y_pred)
+
+# 4. 报告统计值和 R 方
+summary_stats <- summary(prediction_model)
+print(summary_stats)
+
+# 提取具体数值
+r_squared <- summary_stats$r.squared
+adj_r_squared <- summary_stats$adj.r.squared
+p_value <- summary_stats$coefficients[2, 4]
+
+message(paste("线性拟合 R2:", round(r_squared, 4)))
+
+```
+
+```{r}
+
+output_file <- "model_ascertain_EXP3_2_output_260410.Rdata"
+
+load(file = paste0(result_dir, output_file))
+```
+
+```{r}
+y_rep <- rstan::extract(model_output)$y_rep
+y_real <- data_df$alloc_var  # 确保你的观测值向量已经加载
+
+# 3. 计算贝叶斯 R2 (基于方差分解公式)
+# 计算预测值的方差 (每行采样计算一个方差)
+var_y_rep <- apply(y_rep, 1, var)
+
+# 计算残差的方差
+res <- -1 * sweep(y_rep, 2, y_real)
+var_res <- apply(res, 1, var)
+
+# 计算贝叶斯 R2 分布
+br2 <- var_y_rep / (var_y_rep + var_res)
+
+# 4. 报告均值和分位数
+print(quantile(br2, probs = c(0.025, 0.5, 0.975)))
+
+```
+
+# model type2
+```{r}
+
+# 准备Stan数据
+data_df$SubID_stan <- as.integer(as.factor(data_df$SubID))
+# data_df$PE_scaled <- as.numeric(scale(data_df$PE))
+# data_df$outcome_scaled <- as.numeric(scale(data_df$Value))
+stan_data <- list(
+  N = nrow(data_df),
+  S = n_subjects,
+  subject = data_df$SubID_stan,
+  x = data_df$Value,
+  # pe = data_df$PE_scaled,
+  y = data_df$alloc_var
+)
+```
+
+
+# Parameter recovery
+```{r}
+
+
+# 加载必要的库
+library(rstan)
+library(ggplot2)
+library(patchwork)
+
+# ==========================================
+# 步骤 1: 构建数据生成器 (代码未变)
+# ==========================================
+simulate_data <- function(S = 43, trials_per_subj = 60, seed = 123) {
+  set.seed(seed)
+  
+  # 1. 设定真实的群体水平超参数 (Hyperparameters)
+  # 这些值是你希望模型最终能找回来的“上帝视角”真实值
+  true_params <- list(
+    mu_int_neg = -0.74, sigma_int_neg = 3,
+    mu_int_pos = 4.70, sigma_int_pos = 4,
+    mu_slo_neg = 3.08, sigma_slo_neg = 1,
+    mu_slo_pos = 3.37, sigma_slo_pos = 1,
+    sigma_obs  = 2,
+    nu = 4
+  )
+  
+  # 2. 模拟个体水平参数 (使用非中心参数化逻辑)
+  # 生成标准正态分布的扰动项 z
+  z_int_neg <- rnorm(S, 0, 1)
+  z_int_pos <- rnorm(S, 0, 1)
+  z_slo_neg <- rnorm(S, 0, 1)
+  z_slo_pos <- rnorm(S, 0, 1)
+  
+  # 转换为实际的个体参数 (严格对齐 transformed parameters 模块)
+  # 截距是线性组合
+  int_neg <- true_params$mu_int_neg + true_params$sigma_int_neg * z_int_neg
+  int_pos <- true_params$mu_int_pos + true_params$sigma_int_pos * z_int_pos
+  # 斜率带有 exp() 转换保证大于 0
+  slo_neg <- true_params$mu_slo_neg + true_params$sigma_slo_neg * z_slo_neg
+  slo_pos <- true_params$mu_slo_pos + true_params$sigma_slo_pos * z_slo_pos
+  
+  # 3. 生成实验设计和行为数据
+  N <- S * trials_per_subj
+  subject <- rep(1:S, each = trials_per_subj)
+  x <- rnorm(N, 0, 1) # 生成标准化的 x 变量
+  y <- numeric(N)
+  
+  # 逐 trial 生成数据
+  for (i in 1:N) {
+    s <- subject[i]
+    
+    # 核心分段逻辑
+    if (x[i] < 0) {
+      mu_gen <- int_neg[s] + slo_neg[s] * x[i]
+    } else {
+      mu_gen <- int_pos[s] + slo_pos[s] * x[i]
+    }
+    
+    # 加入 Student-t 噪声
+    # R 语言的 rt() 生成的是标准 t 分布，需要乘以尺度参数并加上位置参数
+    y[i] <- mu_gen + true_params$sigma_obs * rt(1, df = true_params$nu)
+  }
+  
+  # 根据你的 Stan 代码注释，y 的范围被截断在 [-50, 50]
+  y <- pmax(pmin(y, 50), -50)
+  
+  # 将真实的个体参数打包，用于后续核对
+  true_ind_params <- data.frame(
+    subject = 1:S,
+    int_neg = int_neg, int_pos = int_pos,
+    slo_neg = slo_neg, slo_pos = slo_pos
+  )
+  
+  # 返回生成的数据和真实参数
+  return(list(
+    stan_data = list(N = N, S = S, subject = subject, x = x, y = y),
+    true_hyper = true_params,
+    true_ind = true_ind_params
+  ))
+}
+
+# ==========================================
+# 步骤 2: 拟合模型与保存结果
+# ==========================================
+save_path <- "./04_parameter_recovery/stan_recovery_results_260621.rds" # 定义保存的文件名
+
+if (!file.exists(save_path)) {
+  message("未发现本地缓存，开始模拟数据并拟合模型...")
+  
+  # 生成虚拟数据
+  sim_output <- simulate_data(S = 43, trials_per_subj = 60)
+  
+  # 调用 rstan 拟合模型
+  fit_recovery <- stan(
+    file = "./model_ascertain_2_260402.stan", 
+    data = sim_output$stan_data,
+    chains = 4, iter = 2000, warmup = 1000, cores = 4, seed = 42
+  )
+  
+  # --- 功能1：保存参数恢复的结果 ---
+  # 将模拟数据和拟合结果一起打包保存
+  save_results <- list(sim_output = sim_output, fit_recovery = fit_recovery)
+  saveRDS(save_results, file = save_path)
+  message("模型拟合完成并已保存至：", save_path)
+  
+} else {
+  # --- 功能1：后续直接恢复结果 ---
+  message("发现本地缓存，正在加载已有的拟合结果...")
+  save_results <- readRDS(save_path)
+  sim_output <- save_results$sim_output
+  fit_recovery <- save_results$fit_recovery
+}
+```
+## new fig
+```{r}
+
+# Optional export devices. Install if unavailable:
+# install.packages(c("svglite", "ragg"))
+
+# Inputs expected from the model-recovery workflow:
+#   fit_recovery: fitted rstan model object
+#   sim_output: list containing true_ind, true_hyper, and stan_data$S
+post_samples <- rstan::extract(fit_recovery)
+
+out_dir <- "./04_parameter_recovery"
+if (!dir.exists(out_dir)) dir.create(out_dir, recursive = TRUE)
+
+param_palette <- c(
+  "Bias_neg"  = "#4E6E9E",
+  "Bias_pos"  = "#8DA6C8",
+  "Slope_neg" = "#B85C5A",
+  "Slope_pos" = "#D99A77"
+)
+param_palette <- c(
+  "Bias_neg" = "#6F78B9", # 墨青
+  "Bias_pos" = "#F37252", # 玫红
+  "Slope_neg" = "#81D0D6", # 亮蓝
+  "Slope_pos" = "#FDBC63"  # 琥珀橙
+)
+
+param_labels <- c(
+  "Bias_neg"  = "Bias (x < 0)",
+  "Bias_pos"  = "Bias (x >= 0)",
+  "Slope_neg" = "Slope (x < 0)",
+  "Slope_pos" = "Slope (x >= 0)"
+)
+
+theme_nature_recovery <- function(base_size = 26, base_family = "Arial") {
+  theme_classic(base_size = base_size, base_family = base_family) +
+    theme(
+      axis.line = element_line(linewidth = 0.7, colour = "black"),
+      axis.ticks = element_line(linewidth = 0.7, colour = "black"),
+      axis.ticks.length = unit(2.8, "mm"),
+      axis.title = element_text(size = base_size, colour = "black"),
+      axis.text = element_text(size = base_size, colour = "black"),
+      strip.background = element_blank(),
+      strip.text = element_text(size = base_size, face = "bold", margin = margin(b = 2)),
+      plot.title = element_text(size = base_size + 1, face = "bold", hjust = 0, margin = margin(b = 4)),
+      # plot.subtitle = element_text(size = base_size, colour = "grey30", hjust = 0),
+      plot.margin = margin(3, 3, 3, 3),
+      legend.position = "none"
+    )
+}
+
+save_nature_plot <- function(plot, file_stem, width_mm = 89, height_mm = 89, dpi = 600) {
+  width_in <- width_mm / 25.4
+  height_in <- height_mm / 25.4
+  svg_path <- file.path(out_dir, paste0(file_stem, ".svg"))
+  pdf_path <- file.path(out_dir, paste0(file_stem, ".pdf"))
+  tiff_path <- file.path(out_dir, paste0(file_stem, ".tiff"))
+  png_path <- file.path(out_dir, paste0(file_stem, ".png"))
+
+  svglite::svglite(svg_path, width = width_in, height = height_in)
+  print(plot)
+  dev.off()
+
+  grDevices::cairo_pdf(pdf_path, width = width_in, height = height_in, family = "Arial")
+  print(plot)
+  dev.off()
+
+  ragg::agg_tiff(tiff_path, width = width_in, height = height_in, units = "in", res = dpi)
+  print(plot)
+  dev.off()
+
+  ragg::agg_png(png_path, width = width_in, height = height_in, units = "in", res = 300)
+  print(plot)
+  dev.off()
+}
+
+# -------------------------
+# a. Individual parameters
+# -------------------------
+
+df_ind_recovery <- tibble(
+  True = c(
+    sim_output$true_ind$int_neg,
+    sim_output$true_ind$int_pos,
+    sim_output$true_ind$slo_neg,
+    sim_output$true_ind$slo_pos
+  ),
+  Estimated = c(
+    colMeans(post_samples$int_neg),
+    colMeans(post_samples$int_pos),
+    colMeans(post_samples$slo_neg),
+    colMeans(post_samples$slo_pos)
+  ),
+  Parameter = factor(
+    rep(c("Bias_neg", "Bias_pos", "Slope_neg", "Slope_pos"), each = sim_output$stan_data$S),
+    levels = names(param_palette)
+  )
+)
+
+cor_labels <- df_ind_recovery %>%
+  group_by(Parameter) %>%
+  summarise(
+    r = cor(True, Estimated, method = "pearson"),
+    p = cor.test(True, Estimated, method = "pearson")$p.value,
+    x = max(True, na.rm = TRUE),
+    y = min(Estimated, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    label = if_else(
+      p < 0.001,
+      sprintf("italic(r)==%.2f*','~italic(p)<0.001", r),
+      sprintf("italic(r)==%.2f*','~italic(p)==%.3f", r, p)
+    )
+  )
+
+p_ind <- ggplot(df_ind_recovery, aes(x = True, y = Estimated, colour = Parameter)) +
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed", colour = "grey45", linewidth = 0.8) +
+  geom_point(alpha = 0.68, size = 4, stroke = 0) +
+  geom_text(
+    data = cor_labels,
+    aes(x = x, y = y, label = label),
+    inherit.aes = FALSE,
+    hjust = 1,
+    vjust = 0,
+    size = 6,
+    colour = "black",
+    parse = TRUE
+  ) +
+  facet_wrap(
+    ~Parameter,
+    scales = "free",
+    ncol = 2,
+    labeller = labeller(Parameter = param_labels)
+  ) +
+  scale_colour_manual(values = param_palette) +
+  labs(x = "True parameter value", y = "Posterior mean estimate") +
+  theme_nature_recovery()
+
+print(p_ind)
+
+save_nature_plot(
+  p_ind,
+  "Fig_parameter_recovery_individual_Nature",
+  width_mm = 200,
+  height_mm = 200,
+  dpi = 600
+)
+
+# -------------------------
+# b. Group-level parameters
+# -------------------------
+
+param_mapping <- c(
+  "mu_int_neg" = "Bias_neg",
+  "mu_int_pos" = "Bias_pos",
+  "mu_slo_neg" = "Slope_neg",
+  "mu_slo_pos" = "Slope_pos"
+)
+
+df_group_recovery <- bind_rows(lapply(names(param_mapping), function(param) {
+  post_dist <- post_samples[[param]]
+  tibble(
+    Parameter = factor(param_mapping[[param]], levels = names(param_palette)),
+    Estimate = post_dist,
+    True = sim_output$true_hyper[[param]],
+    CrI_lower = unname(quantile(post_dist, 0.025, na.rm = TRUE)),
+    CrI_upper = unname(quantile(post_dist, 0.975, na.rm = TRUE))
+  )
+}))
+
+p_group <- ggplot(df_group_recovery, aes(x = Estimate, fill = Parameter)) +
+  geom_density(alpha = 0.55, colour = NA, adjust = 1) +
+  geom_vline(aes(xintercept = CrI_lower), linetype = "dashed", colour = "grey40", linewidth = 0.3) +
+  geom_vline(aes(xintercept = CrI_upper), linetype = "dashed", colour = "grey40", linewidth = 0.3) +
+  geom_vline(aes(xintercept = True), colour = "black", linewidth = 0.42) +
+  facet_wrap(
+    ~Parameter,
+    scales = "free",
+    ncol = 2,
+    labeller = labeller(Parameter = param_labels)
+  ) +
+  scale_fill_manual(values = param_palette) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.06))) +
+  scale_x_continuous(expand = expansion(mult = c(0.06, 0.06))) +
+  labs(x = "Posterior estimate", y = "Density") +
+  theme_nature_recovery()
+
+print(p_group)
+
+save_nature_plot(
+  p_group,
+  "Fig_parameter_recovery_group_Nature",
+  width_mm = 200,
+  height_mm = 200,
+  dpi = 600
+)
+
+message("Nature-style recovery figures saved to: ", normalizePath(out_dir, mustWork = FALSE))
+
+
+
+```
+
+```{r}
+
+
+# ==========================================
+# 步骤 3: 提取后验并可视化
+# ==========================================
+# 从模型中提取后验样本
+post_samples <- rstan::extract(fit_recovery)
+
+# --- 1. 检查个体水平参数恢复 (散点图) ---
+# 提取后验均值
+est_int_neg <- colMeans(post_samples$int_neg)
+est_int_pos <- colMeans(post_samples$int_pos)
+est_slo_neg <- colMeans(post_samples$slo_neg)
+est_slo_pos <- colMeans(post_samples$slo_pos)
+
+# 组合成数据框
+df_ind_recovery <- data.frame(
+  True = c(sim_output$true_ind$int_neg, sim_output$true_ind$int_pos, 
+           sim_output$true_ind$slo_neg, sim_output$true_ind$slo_pos),
+  Estimated = c(est_int_neg, est_int_pos, est_slo_neg, est_slo_pos),
+  Parameter = factor(rep(c("Intercept (x < 0)", "Intercept (x >= 0)", 
+                           "Slope (x < 0)", "Slope (x >= 0)"), 
+                         each = sim_output$stan_data$S))
+)
+
+# 1. 精准修改参数名称并排序
+df_ind_recovery <- df_ind_recovery %>%
+  mutate(Parameter = recode(Parameter, 
+    "Intercept (x < 0)"  = "Bias_neg",
+    "Intercept (x >= 0)" = "Bias_pos",
+    "Slope (x < 0)"      = "Slope_neg",
+    "Slope (x >= 0)"     = "Slope_pos"
+  )) %>%
+  # 按照你要求的顺序排列：先拦截项，后斜率项
+  mutate(Parameter = factor(Parameter, levels = c("Bias_neg", "Bias_pos", "Slope_neg", "Slope_pos")))
+
+# 2. 定制“学术高定”配色方案（不发白、高级中间调）
+# Intercept 用深邃的青蓝色系，Slope 用明亮的落日红橙系
+academic_palette <- c(
+  "Bias_neg" = "#6F78B9", # 墨青
+  "Bias_pos" = "#F37252", # 玫红
+  "Slope_neg"     = "#81D0D6", # 亮蓝
+  "Slope_pos"     = "#FDBC63"  # 琥珀橙
+)
+
+# 3. 绘图
+p_ind <- ggplot(df_ind_recovery, aes(x = True, y = Estimated, color = Parameter)) +
+  # 散点：稍微调大，增加 0.7 不透明度保证色彩饱和
+  geom_point(alpha = 0.6, size = 3) +
+  
+  # 对角线：使用浅灰色细虚线，不抢主角戏份
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "grey30", linewidth = 1) +
+  
+  # 相关性标注：使用 italic(r) 格式更显学术感
+  stat_cor(method = "pearson", 
+           aes(label = paste(..r.label.., ..p.label.., sep = "~`,`~")),
+           label.x.npc = 0.01, label.y.npc = 0.97,
+           size = 5.5, fontface = "bold", color = "black") + 
+  
+  facet_wrap(~Parameter, scales = "free", ncol = 2) +
+  
+  # 应用新配色
+  scale_color_manual(values = academic_palette) +
+  
+  # 主题极致润色
+  theme_bw() + 
+  theme(
+    legend.position = "none",
+    # 彻底告别默认的灰色分面标题栏
+    strip.background = element_blank(), 
+    strip.text = element_text(size = 30),
+    
+    # 坐标轴与面板
+    panel.border = element_rect(colour = "black", fill = NA, linewidth = 1.2),
+    panel.grid.minor = element_blank(),
+    panel.grid.major = element_line(color = "grey95"),
+    
+    axis.title = element_text(size = 30, face = "bold", margin = margin(b = 5)),
+    axis.text = element_text(size = 30, color = "black", face = "plain"),
+    plot.title = element_text(size = 30, face = "bold", hjust = 0.5),
+    plot.subtitle = element_text(size = 30, color = "grey30", hjust = 0.5)
+  ) +
+  labs(
+    title = "Individual-level Parameter Recovery",
+    # subtitle = "Correlations between true generative parameters and posterior estimates",
+    x = "True Parameter Value", 
+    y = "Estimated Posterior Mean"
+  )
+
+print(p_ind)
+
+# 保存为矢量图，方便你之后放进 PNAS 等级的论文里
+ggsave("./04_parameter_recovery/Parameter_Recovery_Final_260621.svg", plot = p_ind, width = 10, height = 10)
+ggsave("./04_parameter_recovery/Parameter_Recovery_Final_260621.png", plot = p_ind, width = 10, height = 10, dpi = 300)
+
+```
+## fig
+```{r}
+
+# --- 2. 群体水平可视化 ---
+# 定义旧名字到新名字的映射关系
+param_mapping <- c(
+   "mu_int_neg" = "bias_neg",
+   "mu_int_pos" = "bias_pos",
+   "mu_slo_neg" = "slope_neg",
+   "mu_slo_pos" = "slope_pos"
+)
+# param_mapping <- c(
+#   "bias_neg" = "Intercept (x < 0)",
+#   "bias_pos" = "Intercept (x >= 0)",
+#   "slope_neg" = "Slope (x < 0)",
+#   "slope_pos" = "Slope (x >= 0)" 
+# )
+# param_mapping <- c("mean_int_neg","mean_int_pos","mean_slo_neg","mean_slo_pos")
+
+# 定制配色（对应你刚才个体水平的莫兰迪/深色调系，确保整篇论文色调统一）
+# 这里我们为四个参数定义填充色
+fill_cols <- c(
+  "mu_int_neg" = "#6F78B9", # 墨青
+  "mu_int_pos" = "#F37252", # 玫红
+  "mu_slo_neg" = "#81D0D6", # 亮蓝
+  "mu_slo_pos" = "#FDBC63"  # 琥珀橙
+)
+
+plot_list <- list()
+
+for (param in names(param_mapping)) {
+  
+  # 获取绘图数据
+  true_val <- sim_output$true_hyper[[param]]
+  post_dist <- post_samples[[param]]
+  hdi_lower <- quantile(post_dist, 0.025)
+  hdi_upper <- quantile(post_dist, 0.975)
+  
+  # 获取新的显示名称
+  display_name <- param_mapping[param]
+  
+  # 绘图
+  plot_list[[param]] <- ggplot(data.frame(x = post_dist), aes(x = x)) +
+    # 使用更高饱和度、不发白的填充色，alpha 稍微调高
+    geom_density(fill = fill_cols[param], alpha = 0.5, color = NA) +
+    # 真值线：用鲜明的红色
+    geom_vline(xintercept = true_val, color = "#D00000", linetype = "solid", linewidth = 1) +
+    # 95% 密度区间线
+    geom_vline(xintercept = c(hdi_lower, hdi_upper), color = "grey30", linetype = "dashed", linewidth = 0.5) +
+    
+    labs(title = display_name, x = "Posterior Estimate", y = "Density") +
+    theme_classic() + # 换成 classic 主题，画面更干净，没有背景网格
+    theme(
+      plot.title = element_text(hjust = 0.5, size = 30, face = "bold", margin = margin(b = 5)),
+      axis.title = element_text(size = 30),
+      axis.text.y = element_text(size = 30, color = "black", margin = margin(r = 5)),
+      axis.text.x = element_text(size = 30, color = "black")
+    ) +
+    scale_y_continuous(expand = c(0,0)) +
+    scale_x_continuous(expand = expansion(mult = c(0.08, 0.08)))
+}
+
+# 拼图
+p_group <- wrap_plots(plot_list, ncol = 2) + 
+  plot_annotation(
+    title = "Group-level Hyperparameter Recovery",
+    # subtitle = "Solid Red Line = True Value; Dashed Lines = 95% Highest Density Interval",
+    theme = theme(
+      plot.title = element_text(size = 30, face = "bold", hjust = 0.5),
+      # plot.subtitle = element_text(size = 12, hjust = 0.5, color = "grey20")
+    )
+  )
+
+# 打印查看
+print(p_group)
+
+# --- 功能2：保存图片 ---
+# 确保文件夹存在
+if(!dir.exists("./04_parameter_recovery")) dir.create("./04_parameter_recovery", recursive = TRUE)
+
+ggsave("./04_parameter_recovery/plot_group_recovery_260621.svg", plot = p_group, width = 10, height = 10)
+ggsave("./04_parameter_recovery/plot_group_recovery_260621.png", plot = p_group, width = 10, height = 10, dpi = 300)
+
+message("群体水平参数恢复图已保存，采用更新后的命名与配色。")
+
+```
+
+
+```{r}
+
+library(ggpubr)
+library(dplyr)
+library(patchwork)
+library(ggplot2)
+
+# ==========================================
+# 0. 共享视觉参数 (统一风格基石)
+# ==========================================
+academic_palette <- c(
+  "Intercept_neg" = "#6F78B9", 
+  "Intercept_pos" = "#81D0D6", 
+  "Slope_neg"     = "#F37252", 
+  "Slope_pos"     = "#FDBC63"
+)
+
+common_theme <- theme_bw() + 
+  theme(
+    legend.position = "none",
+    strip.background = element_blank(), 
+    strip.text = element_text(size = 15, face = "bold"),
+    panel.border = element_rect(colour = "black", fill = NA, linewidth = 1.2),
+    panel.grid.minor = element_blank(),
+    panel.grid.major = element_line(color = "grey95"),
+    axis.title = element_text(size = 16, face = "bold"),
+    axis.text = element_text(size = 12, color = "black"),
+    plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
+    plot.subtitle = element_text(size = 13, color = "grey30", hjust = 0.5)
+  )
+
+# ==========================================
+# 1. 个体水平图 (p_ind)
+# ==========================================
+df_ind_recovery_clean <- df_ind_recovery %>%
+  mutate(Parameter = recode(Parameter, 
+                            "Intercept (x < 0)"  = "Intercept_neg",
+                            "Intercept (x >= 0)" = "Intercept_pos",
+                            "Slope (x < 0)"      = "Slope_neg",
+                            "Slope (x >= 0)"     = "Slope_pos")) %>%
+  mutate(Parameter = factor(Parameter, levels = names(academic_palette)))
+
+p_ind <- ggplot(df_ind_recovery_clean, aes(x = True, y = Estimated, color = Parameter)) +
+  geom_point(alpha = 0.7, size = 3) +
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "grey70", linewidth = 0.6) +
+  stat_cor(method = "pearson", 
+           aes(label = paste(..r.label.., ..p.label.., sep = "~`,`~")),
+           label.x.npc = 0.05, label.y.npc = 0.95,
+           size = 5.5, fontface = "bold", color = "black") + 
+  facet_wrap(~Parameter, scales = "free", ncol = 2) +
+  scale_color_manual(values = academic_palette) +
+  common_theme + # 应用统一主题
+  labs(title = "Individual-level Parameter Recovery",
+       subtitle = "Correlations between true parameters and posterior estimates",
+       x = "True Parameter Value", y = "Estimated Posterior Mean")
+
+# ==========================================
+# 2. 群体水平图 (p_group)
+# ==========================================
+param_mapping <- c("mu_int_neg" = "Intercept_neg", "mu_int_pos" = "Intercept_pos",
+                   "mu_slo_neg" = "Slope_neg", "mu_slo_pos" = "Slope_pos")
+
+plot_list <- list()
+for (param in names(param_mapping)) {
+  true_val <- sim_output$true_hyper[[param]]
+  post_dist <- post_samples[[param]]
+  hdi_lower <- quantile(post_dist, 0.025); hdi_upper <- quantile(post_dist, 0.975)
+  display_name <- param_mapping[param]
+  
+  plot_list[[param]] <- ggplot(data.frame(x = post_dist), aes(x = x)) +
+    geom_density(fill = academic_palette[display_name], alpha = 0.7, color = NA) +
+    geom_vline(xintercept = true_val, color = "#D00000", linetype = "solid", linewidth = 1.2) +
+    geom_vline(xintercept = c(hdi_lower, hdi_upper), color = "grey30", linetype = "dashed", linewidth = 0.6) +
+    labs(title = display_name, x = "Posterior Estimate", y = "Density") +
+    common_theme + # 应用完全相同的边框和字体设置
+    theme(plot.title = element_text(size = 15)) # 稍微缩小分面标题以适应密度图
+}
+
+p_group <- wrap_plots(plot_list, ncol = 2) + 
+  plot_annotation(title = "Group-level Hyperparameter Recovery",
+                  subtitle = "Solid Red Line = True Value; Dashed Lines = 95% HDI",
+                  theme = common_theme) # 确保大标题也对齐
+
+# ==========================================
+# 3. 统一保存
+# ==========================================
+if(!dir.exists("./04_parameter_recovery")) dir.create("./04_parameter_recovery", recursive = TRUE)
+
+# 保存个体图
+ggsave("./04_parameter_recovery/Fig_Ind_Recovery.png", p_ind, width = 10, height = 9, dpi = 300)
+ggsave("./04_parameter_recovery/Fig_Ind_Recovery.svg", p_ind, width = 10, height = 9)
+
+# 保存群体图
+ggsave("./04_parameter_recovery/Fig_Group_Recovery.png", p_group, width = 10, height = 9, dpi = 300)
+ggsave("./04_parameter_recovery/Fig_Group_Recovery.svg", p_group, width = 10, height = 9)
+
+message("统一风格的两张图已生成并存入 './04_parameter_recovery/'。")
+
+```
+```{r}
+
+# ==========================================
+# 步骤 1: 构建数据生成器
+# ==========================================
+simulate_data <- function(S = 40, trials_per_subj = 60, seed = 123) {
+  set.seed(seed)
+  
+  # 1. 设定真实的群体水平超参数 (Hyperparameters)
+  # 这些值是你希望模型最终能找回来的“上帝视角”真实值
+  true_params <- list(
+    mu_int_neg =  2.0,  sigma_int_neg = 3.0,
+    mu_int_pos =  5.0,  sigma_int_pos = 4.0,
+    # 注意：斜率的 mu 是在 log 尺度上的，exp(0.5) 约为 1.6
+    mu_slo_neg =  5,  sigma_slo_neg = 2, 
+    mu_slo_pos =  2,  sigma_slo_pos = 2,
+    sigma_obs  =  8.0,  # 观测噪声
+    nu         =  4.0   # Student-t 的自由度，越小尾巴越厚
+  )
+  
+  # 2. 模拟个体水平参数 (使用非中心参数化逻辑)
+  # 生成标准正态分布的扰动项 z
+  z_int_neg <- rnorm(S, 0, 1)
+  z_int_pos <- rnorm(S, 0, 1)
+  z_slo_neg <- rnorm(S, 0, 1)
+  z_slo_pos <- rnorm(S, 0, 1)
+  
+  # 转换为实际的个体参数 (严格对齐 transformed parameters 模块)
+  # 截距是线性组合
+  int_neg <- true_params$mu_int_neg + true_params$sigma_int_neg * z_int_neg
+  int_pos <- true_params$mu_int_pos + true_params$sigma_int_pos * z_int_pos
+  # 斜率带有 exp() 转换保证大于 0
+  slo_neg <- true_params$mu_slo_neg + true_params$sigma_slo_neg * z_slo_neg
+  slo_pos <- true_params$mu_slo_pos + true_params$sigma_slo_pos * z_slo_pos
+  
+  # 3. 生成实验设计和行为数据
+  N <- S * trials_per_subj
+  subject <- rep(1:S, each = trials_per_subj)
+  x <- rnorm(N, 0, 1) # 生成标准化的 x 变量
+  y <- numeric(N)
+  
+  # 逐 trial 生成数据
+  for (i in 1:N) {
+    s <- subject[i]
+    
+    # 核心分段逻辑
+    if (x[i] < 0) {
+      mu_gen <- int_neg[s] + slo_neg[s] * x[i]
+    } else {
+      mu_gen <- int_pos[s] + slo_pos[s] * x[i]
+    }
+    
+    # 加入 Student-t 噪声
+    # R 语言的 rt() 生成的是标准 t 分布，需要乘以尺度参数并加上位置参数
+    y[i] <- mu_gen + true_params$sigma_obs * rt(1, df = true_params$nu)
+  }
+  
+  # 根据你的 Stan 代码注释，y 的范围被截断在 [-50, 50]
+  y <- pmax(pmin(y, 50), -50)
+  
+  # 将真实的个体参数打包，用于后续核对
+  true_ind_params <- data.frame(
+    subject = 1:S,
+    int_neg = int_neg, int_pos = int_pos,
+    slo_neg = slo_neg, slo_pos = slo_pos
+  )
+  
+  # 返回生成的数据和真实参数
+  return(list(
+    stan_data = list(N = N, S = S, subject = subject, x = x, y = y),
+    true_hyper = true_params,
+    true_ind = true_ind_params
+  ))
+}
+
+# ==========================================
+# 步骤 2: 拟合模型
+# ==========================================
+# 生成虚拟数据 (比如 40 个人，每人 60 个 trial)
+sim_output <- simulate_data(S = 40, trials_per_subj = 60)
+
+# 调用 rstan 拟合你写好的 stan 模型 (假设文件名为 piecewise_model.stan)
+fit_recovery <- stan(
+  file = "model_ascertain_2_260402.stan", 
+  data = sim_output$stan_data,
+  chains = 4, 
+  iter = 2000, 
+  warmup = 1000,
+  cores = 4,
+  seed = 42 # 固定种子，保证结果可复现
+)
+
+# ==========================================
+# 步骤 3: 提取后验并可视化
+# ==========================================
+# 从模型中提取后验样本
+post_samples <- rstan::extract(fit_recovery)
+
+# --- 1. 检查个体水平参数恢复 (散点图) ---
+# 提取后验均值
+est_int_neg <- colMeans(post_samples$int_neg)
+est_int_pos <- colMeans(post_samples$int_pos)
+est_slo_neg <- colMeans(post_samples$slo_neg)
+est_slo_pos <- colMeans(post_samples$slo_pos)
+
+# 组合成数据框
+df_ind_recovery <- data.frame(
+  True = c(sim_output$true_ind$int_neg, sim_output$true_ind$int_pos, 
+           sim_output$true_ind$slo_neg, sim_output$true_ind$slo_pos),
+  Estimated = c(est_int_neg, est_int_pos, est_slo_neg, est_slo_pos),
+  Parameter = factor(rep(c("Intercept (x < 0)", "Intercept (x >= 0)", 
+                           "Slope (x < 0)", "Slope (x >= 0)"), 
+                         each = sim_output$stan_data$S))
+)
+
+# 画个体水平散点图
+p_ind <- ggplot(df_ind_recovery, aes(x = True, y = Estimated, color = Parameter)) +
+  geom_point(alpha = 0.7, size = 2) +
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "black", linewidth = 1) +
+  facet_wrap(~Parameter, scales = "free") +
+  labs(title = "Individual-level Parameter Recovery",
+       x = "True Generated Value", y = "Estimated Posterior Mean") +
+  theme_bw() +
+  theme(legend.position = "none")
+
+print(p_ind)
+
+# --- 2. 检查群体水平参数恢复 (后验分布图) ---
+# 检查这四个核心群体均值
+hyper_params_to_check <- c("mu_int_neg", "mu_int_pos", "mu_slo_neg", "mu_slo_pos")
+
+plot_list <- list()
+for (param in hyper_params_to_check) {
+  
+  # 提取真实值和后验分布
+  true_val <- sim_output$true_hyper[[param]]
+  post_dist <- post_samples[[param]]
+  
+  # 计算 95% 贝叶斯置信区间 (HDI)
+  hdi_lower <- quantile(post_dist, 0.025)
+  hdi_upper <- quantile(post_dist, 0.975)
+  
+  # 画密度图
+  plot_list[[param]] <- ggplot(data.frame(x = post_dist), aes(x = x)) +
+    geom_density(fill = "skyblue", alpha = 0.5) +
+    geom_vline(xintercept = true_val, color = "red", linetype = "solid", linewidth = 1.2) +
+    geom_vline(xintercept = c(hdi_lower, hdi_upper), color = "gray40", linetype = "dashed") +
+    labs(title = param, x = "Posterior Estimate", y = "Density") +
+    theme_minimal()
+}
+
+# 拼图并展示群体参数恢复
+p_group <- wrap_plots(plot_list, ncol = 2) + 
+  plot_annotation(title = "Group-level Hyperparameter Recovery",
+                  subtitle = "Red line = True Value, Dashed lines = 95% CrI")
+print(p_group)
+
+
+```

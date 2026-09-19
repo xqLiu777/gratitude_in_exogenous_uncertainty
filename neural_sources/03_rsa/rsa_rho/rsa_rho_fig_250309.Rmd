@@ -1,0 +1,562 @@
+```{r packages}
+
+library(readxl)
+library(bruceR)
+library(ggplot2)#绘图工具
+library(openxlsx)
+
+
+```
+
+```{r}
+
+pt_to_mm <- 0.57
+pt_to_mm_y <- 1.4
+mm_to_pt <- 2.8346
+
+width_in_inches <- 21.5
+height_in_inches <- 24.7
+
+x_start <- 0.4
+
+point_jitter <- 0.02
+point_size <- 12
+point_alpha <- 0.7
+
+ns_y <- -0.23
+sig_y <- -0.24
+sig_size <- 26
+
+bar_width <- 0.8
+position_width <- 0.92
+
+
+```
+
+
+```{r}
+
+theme <- "Intention_ROI_3_52_"
+roi_1 <- "roi_3"
+roi_2 <- "roi_52"
+
+data_dir <- paste0("E:\\lxq\\jupyter\\CMF2024\\fmri\\03_rsa\\rsa_rho\\", theme, "rho_value_241230.xlsx")
+
+# 读取 Excel 文件
+exp_data <- read_excel(data_dir, sheet = 'Sheet1')
+exp_data <- na.omit(exp_data)
+
+# 计算每组的平均值和标准误差
+summary_data <- exp_data %>%
+  group_by(roi_id, theme) %>%
+  summarize(mean_value = mean(r_value), se = sd(r_value) / sqrt(length(r_value)), .groups = "drop")
+
+summary_data$theme <- factor(summary_data$theme, levels = c("Gratitude", "Allocation", "Intention", "Cost"))
+summary_data$roi_id <- factor(summary_data$roi_id, levels = c(roi_1, roi_2))
+
+
+
+gratitude_data_1 <- as.data.frame(matrix(nrow = 45))
+gratitude_data_1$y <- subset(exp_data, theme == "Gratitude" & roi_id == roi_1)$r_value
+gratitude_data_1$x <- 1 - position_width/4 - position_width/8
+
+allocation_data_1 <- as.data.frame(matrix(nrow = 46))
+allocation_data_1$y <- subset(exp_data, theme == "Allocation" & roi_id == roi_1)$r_value
+allocation_data_1$x <- 1 - position_width/8
+
+intention_data_1 <- as.data.frame(matrix(nrow = 46))
+intention_data_1$y <- subset(exp_data, theme == "Intention" & roi_id == roi_1)$r_value
+intention_data_1$x <- 1 + position_width/8
+
+cost_data_1 <- as.data.frame(matrix(nrow = 46))
+cost_data_1$y <- subset(exp_data, theme == "Cost" & roi_id == roi_1)$r_value
+cost_data_1$x <- 1 + position_width/4 + position_width/8
+
+gratitude_data_2 <- as.data.frame(matrix(nrow = 45))
+gratitude_data_2$y <- subset(exp_data, theme == "Gratitude" & roi_id == roi_2)$r_value
+gratitude_data_2$x <- 2 - position_width/4 - position_width/8
+
+allocation_data_2 <- as.data.frame(matrix(nrow = 46))
+allocation_data_2$y <- subset(exp_data, theme == "Allocation" & roi_id == roi_2)$r_value
+allocation_data_2$x <- 2 - position_width/8
+
+intention_data_2 <- as.data.frame(matrix(nrow = 46))
+intention_data_2$y <- subset(exp_data, theme == "Intention" & roi_id == roi_2)$r_value
+intention_data_2$x <- 2 + position_width/8
+
+cost_data_2 <- as.data.frame(matrix(nrow = 46))
+cost_data_2$y <- subset(exp_data, theme == "Cost" & roi_id == roi_2)$r_value
+cost_data_2$x <- 2 + position_width/4 + position_width/8
+
+
+p <- ggplot()+
+  # 绘制条形图和标准误差 
+  # geom_hline(yintercept = 0, color = "gray", size = 3) +   # 添加水平线 , linetype = "dashed"
+  geom_bar(data = summary_data, stat = "identity", aes(x = roi_id, y = mean_value, hue = theme, color = theme), 
+           size = 6, fill = NA, width = bar_width, , position = position_dodge(width = position_width)) +
+  scale_color_manual(values = c("#76B64E", "#44E4BA", "#FFCA21", "#658DCD")) +  
+
+
+  geom_point(data = gratitude_data_1, aes(x=x, y=y), size = point_size, color = "#C5E0B4", alpha = point_alpha,
+             position=position_jitter(width=point_jitter)) +
+  geom_point(data = allocation_data_1, aes(x=x, y=y), size = point_size, color = "#CFF8ED", alpha = point_alpha,
+             position=position_jitter(width=point_jitter)) +
+  geom_point(data = intention_data_1, aes(x=x, y=y), size = point_size, color = "#FFE699", alpha = point_alpha,
+             position=position_jitter(width=point_jitter)) +
+  geom_point(data = cost_data_1, aes(x=x, y=y), size = point_size, color = "#B4C7E7", alpha = point_alpha,
+             position=position_jitter(width=point_jitter)) +
+  
+  geom_point(data = gratitude_data_2, aes(x=x, y=y), size = point_size, color = "#C5E0B4", alpha = point_alpha,
+             position=position_jitter(width=point_jitter)) +
+  geom_point(data = allocation_data_2, aes(x=x, y=y), size = point_size, color = "#CFF8ED", alpha = point_alpha,
+             position=position_jitter(width=point_jitter)) +
+  geom_point(data = intention_data_2, aes(x=x, y=y), size = point_size, color = "#FFE699", alpha = point_alpha,
+             position=position_jitter(width=point_jitter)) +
+  geom_point(data = cost_data_2, aes(x=x, y=y), size = point_size, color = "#B4C7E7", alpha = point_alpha,
+             position=position_jitter(width=point_jitter)) +
+#  
+  geom_errorbar(data = summary_data, aes(x = roi_id, ymin = mean_value - se, ymax = mean_value + se, fill = theme),
+                width = 0.2,  # 调整errorbar的宽度
+                position = position_dodge(width = position_width), size = 2.5) +  # 与条形图对齐
+# 
+# 
+# 
+  xlab("Indicator") + #横坐标名称
+  ylab("rho") + #纵坐标名称
+  theme_classic() + #去掉背景灰色
+  theme(
+    axis.title = element_text(size = 90),  # 设置坐标轴名称的大小为100
+    axis.text.y = element_text(size = 90, margin = margin(r = 20)),
+    axis.text.x = element_blank(),
+    # axis.title.y = element_text(margin = margin(r = 10 * pt_to_mm)),  # 调整y轴标题与刻度的距离
+    axis.title.x = element_blank(),
+    axis.line = element_line(color = "black", linewidth = 4),
+    legend.position = "none"
+  ) +
+  
+  scale_y_continuous(labels = scales::comma, limits = c(-0.25, 0.45), breaks = seq(-0.2, 0.4, by = 0.2)) +
+
+
+  geom_text(aes(x = 1 - position_width/4 - position_width/8, y = ns_y, label = "n.s."), color = "black", size = sig_size) +  
+  geom_text(aes(x = 1 - position_width/8, y = ns_y, label = "n.s."), color = "black", size = sig_size) + 
+  geom_text(aes(x = 1 + position_width/8, y = sig_y, label = "***"), color = "black", size = sig_size) +  
+  geom_text(aes(x = 1 + position_width/4 + position_width/8, y = sig_y, label = "***"), color = "black", size = sig_size) +
+
+  geom_text(aes(x = 2 - position_width/4 - position_width/8, y = ns_y, label = "n.s."), color = "black", size = sig_size) +  
+  geom_text(aes(x = 2 - position_width/8, y = sig_y, label = "***"), color = "black", size = sig_size) + 
+  geom_text(aes(x = 2 + position_width/8, y = sig_y, label = "***"), color = "black", size = sig_size) +  
+  geom_text(aes(x = 2 + position_width/4 + position_width/8, y = ns_y, label = "n.s."), color = "black", size = sig_size) 
+  
+  # guides(color = guide_legend(ncol = 2)) + # 设置图例为两列
+  # 
+  # theme(
+  #   legend.text = element_text(size = 60, margin = margin(0, 3, 0, 0.5,"cm")),
+  #   # legend.title = element_text(size = 70, margin = margin(0, 2, 0, 0,"cm")),
+  #   legend.position =  c(0.5, 0.97),
+  #   legend.key.width = unit(120, "points"),  # 设置图例项的宽度为1厘米
+  #   legend.key.height = unit(40, "points"),
+  #   # legend.key.size = unit(1, "cm")
+  #   # legend.key = element_rect(color = c("blue","black"), size = 2)
+  #   # legend.spacing.x = unit(20, "cm"),    # 调整图例项之间的间距
+  # )
+
+output_dir = paste0("E:\\lxq\\jupyter\\CMF2024\\fmri\\03_rsa\\rsa_rho\\rsa_rho_graph\\", theme, "rho_result_250309.svg")
+ggsave(output_dir, plot = p, width = width_in_inches, height = height_in_inches, units = "in")
+
+```
+
+
+```{r}
+
+theme <- "Gratitude_ROI_98_148_"
+roi_1 <- "98"
+roi_2 <- "148"
+
+data_dir <- paste0("E:\\lxq\\jupyter\\CMF2024\\fmri\\03_rsa\\rsa_rho\\", theme, "rho_value_241230.xlsx")
+
+
+# 读取 Excel 文件
+exp_data <- read_excel(data_dir, sheet = 'Sheet1')
+exp_data <- na.omit(exp_data)
+
+# 计算每组的平均值和标准误差
+summary_data <- exp_data %>%
+  group_by(roi_id, theme) %>%
+  summarize(mean_value = mean(r_value), se = sd(r_value) / sqrt(length(r_value)), .groups = "drop")
+
+summary_data$theme <- factor(summary_data$theme, levels = c("Gratitude", "Allocation", "Intention", "Cost"))
+summary_data$roi_id <- factor(summary_data$roi_id, levels = c(roi_1, roi_2))
+
+
+
+gratitude_data_1 <- as.data.frame(matrix(nrow = 45))
+gratitude_data_1$y <- subset(exp_data, theme == "Gratitude" & roi_id == roi_1)$r_value
+gratitude_data_1$x <- 1 - position_width/4 - position_width/8
+
+allocation_data_1 <- as.data.frame(matrix(nrow = 46))
+allocation_data_1$y <- subset(exp_data, theme == "Allocation" & roi_id == roi_1)$r_value
+allocation_data_1$x <- 1 - position_width/8
+
+intention_data_1 <- as.data.frame(matrix(nrow = 46))
+intention_data_1$y <- subset(exp_data, theme == "Intention" & roi_id == roi_1)$r_value
+intention_data_1$x <- 1 + position_width/8
+
+cost_data_1 <- as.data.frame(matrix(nrow = 46))
+cost_data_1$y <- subset(exp_data, theme == "Cost" & roi_id == roi_1)$r_value
+cost_data_1$x <- 1 + position_width/4 + position_width/8
+
+gratitude_data_2 <- as.data.frame(matrix(nrow = 45))
+gratitude_data_2$y <- subset(exp_data, theme == "Gratitude" & roi_id == roi_2)$r_value
+gratitude_data_2$x <- 2 - position_width/4 - position_width/8
+
+allocation_data_2 <- as.data.frame(matrix(nrow = 46))
+allocation_data_2$y <- subset(exp_data, theme == "Allocation" & roi_id == roi_2)$r_value
+allocation_data_2$x <- 2 - position_width/8
+
+intention_data_2 <- as.data.frame(matrix(nrow = 46))
+intention_data_2$y <- subset(exp_data, theme == "Intention" & roi_id == roi_2)$r_value
+intention_data_2$x <- 2 + position_width/8
+
+cost_data_2 <- as.data.frame(matrix(nrow = 46))
+cost_data_2$y <- subset(exp_data, theme == "Cost" & roi_id == roi_2)$r_value
+cost_data_2$x <- 2 + position_width/4 + position_width/8
+
+
+p <- ggplot()+
+  # 绘制条形图和标准误差 
+  # geom_hline(yintercept = 0, color = "gray", size = 3) +   # 添加水平线 , linetype = "dashed"
+  geom_bar(data = summary_data, stat = "identity", aes(x = roi_id, y = mean_value, hue = theme, color = theme), 
+           size = 6, fill = NA, width = bar_width, , position = position_dodge(width = position_width)) +
+  scale_color_manual(values = c("#76B64E", "#44E4BA", "#FFCA21", "#658DCD")) +  
+
+
+  geom_point(data = gratitude_data_1, aes(x=x, y=y), size = point_size, color = "#C5E0B4", alpha = point_alpha,
+             position=position_jitter(width=point_jitter)) +
+  geom_point(data = allocation_data_1, aes(x=x, y=y), size = point_size, color = "#CFF8ED", alpha = point_alpha,
+             position=position_jitter(width=point_jitter)) +
+  geom_point(data = intention_data_1, aes(x=x, y=y), size = point_size, color = "#FFE699", alpha = point_alpha,
+             position=position_jitter(width=point_jitter)) +
+  geom_point(data = cost_data_1, aes(x=x, y=y), size = point_size, color = "#B4C7E7", alpha = point_alpha,
+             position=position_jitter(width=point_jitter)) +
+  
+  geom_point(data = gratitude_data_2, aes(x=x, y=y), size = point_size, color = "#C5E0B4", alpha = point_alpha,
+             position=position_jitter(width=point_jitter)) +
+  geom_point(data = allocation_data_2, aes(x=x, y=y), size = point_size, color = "#CFF8ED", alpha = point_alpha,
+             position=position_jitter(width=point_jitter)) +
+  geom_point(data = intention_data_2, aes(x=x, y=y), size = point_size, color = "#FFE699", alpha = point_alpha,
+             position=position_jitter(width=point_jitter)) +
+  geom_point(data = cost_data_2, aes(x=x, y=y), size = point_size, color = "#B4C7E7", alpha = point_alpha,
+             position=position_jitter(width=point_jitter)) +
+#  
+  geom_errorbar(data = summary_data, aes(x = roi_id, ymin = mean_value - se, ymax = mean_value + se, fill = theme),
+                width = 0.2,  # 调整errorbar的宽度
+                position = position_dodge(width = position_width), size = 2.5) +  # 与条形图对齐
+# 
+# 
+# 
+  xlab("Indicator") + #横坐标名称
+  ylab("rho") + #纵坐标名称
+  theme_classic() + #去掉背景灰色
+  theme(
+    axis.title = element_text(size = 90),  # 设置坐标轴名称的大小为100
+    axis.text.y = element_text(size = 90, margin = margin(r = 20)),
+    axis.text.x = element_blank(),
+    # axis.title.y = element_text(margin = margin(r = 10 * pt_to_mm)),  # 调整y轴标题与刻度的距离
+    axis.title.x = element_blank(),
+    axis.line = element_line(color = "black", linewidth = 4),
+    legend.position = "none"
+  ) +
+  
+  scale_y_continuous(labels = scales::comma, limits = c(-0.25, 0.45), breaks = seq(-0.2, 0.4, by = 0.2)) +
+
+
+  geom_text(aes(x = 1 - position_width/4 - position_width/8, y = sig_y, label = "***"), color = "black", size = sig_size) +  
+  geom_text(aes(x = 1 - position_width/8, y = sig_y, label = "**"), color = "black", size = sig_size) + 
+  geom_text(aes(x = 1 + position_width/8, y = ns_y, label = "n.s."), color = "black", size = sig_size) +  
+  geom_text(aes(x = 1 + position_width/4 + position_width/8, y = sig_y, label = "***"), color = "black", size = sig_size) +
+
+  geom_text(aes(x = 2 - position_width/4 - position_width/8, y = sig_y, label = "**"), color = "black", size = sig_size) +  
+  geom_text(aes(x = 2 - position_width/8, y = ns_y, label = "n.s."), color = "black", size = sig_size) + 
+  geom_text(aes(x = 2 + position_width/8, y = ns_y, label = "n.s."), color = "black", size = sig_size) +  
+  geom_text(aes(x = 2 + position_width/4 + position_width/8, y = sig_y, label = "**"), color = "black", size = sig_size) 
+  
+  # guides(color = guide_legend(ncol = 2)) + # 设置图例为两列
+  # 
+  # theme(
+  #   legend.text = element_text(size = 60, margin = margin(0, 3, 0, 0.5,"cm")),
+  #   # legend.title = element_text(size = 70, margin = margin(0, 2, 0, 0,"cm")),
+  #   legend.position =  c(0.5, 0.97),
+  #   legend.key.width = unit(120, "points"),  # 设置图例项的宽度为1厘米
+  #   legend.key.height = unit(40, "points"),
+  #   # legend.key.size = unit(1, "cm")
+  #   # legend.key = element_rect(color = c("blue","black"), size = 2)
+  #   # legend.spacing.x = unit(20, "cm"),    # 调整图例项之间的间距
+  # )
+
+output_dir = paste0("E:\\lxq\\jupyter\\CMF2024\\fmri\\03_rsa\\rsa_rho\\rsa_rho_graph\\", theme, "rho_result_250309.svg")
+ggsave(output_dir, plot = p, width = width_in_inches, height = height_in_inches, units = "in")
+
+```
+
+```{r}
+
+theme <- "Cost_ROI_27_136_"
+roi_1 <- "27"
+roi_2 <- "136"
+
+data_dir <- paste0("E:\\lxq\\jupyter\\CMF2024\\fmri\\03_rsa\\rsa_rho\\", theme, "rho_value_241230.xlsx")
+
+
+# 读取 Excel 文件
+exp_data <- read_excel(data_dir, sheet = 'Sheet1')
+exp_data <- na.omit(exp_data)
+
+# 计算每组的平均值和标准误差
+summary_data <- exp_data %>%
+  group_by(roi_id, theme) %>%
+  summarize(mean_value = mean(r_value), se = sd(r_value) / sqrt(length(r_value)), .groups = "drop")
+
+summary_data$theme <- factor(summary_data$theme, levels = c("Gratitude", "Allocation", "Intention", "Cost"))
+summary_data$roi_id <- factor(summary_data$roi_id, levels = c(roi_1, roi_2))
+
+
+
+gratitude_data_1 <- as.data.frame(matrix(nrow = 45))
+gratitude_data_1$y <- subset(exp_data, theme == "Gratitude" & roi_id == roi_1)$r_value
+gratitude_data_1$x <- 1 - position_width/4 - position_width/8
+
+allocation_data_1 <- as.data.frame(matrix(nrow = 46))
+allocation_data_1$y <- subset(exp_data, theme == "Allocation" & roi_id == roi_1)$r_value
+allocation_data_1$x <- 1 - position_width/8
+
+intention_data_1 <- as.data.frame(matrix(nrow = 46))
+intention_data_1$y <- subset(exp_data, theme == "Intention" & roi_id == roi_1)$r_value
+intention_data_1$x <- 1 + position_width/8
+
+cost_data_1 <- as.data.frame(matrix(nrow = 46))
+cost_data_1$y <- subset(exp_data, theme == "Cost" & roi_id == roi_1)$r_value
+cost_data_1$x <- 1 + position_width/4 + position_width/8
+
+gratitude_data_2 <- as.data.frame(matrix(nrow = 45))
+gratitude_data_2$y <- subset(exp_data, theme == "Gratitude" & roi_id == roi_2)$r_value
+gratitude_data_2$x <- 2 - position_width/4 - position_width/8
+
+allocation_data_2 <- as.data.frame(matrix(nrow = 46))
+allocation_data_2$y <- subset(exp_data, theme == "Allocation" & roi_id == roi_2)$r_value
+allocation_data_2$x <- 2 - position_width/8
+
+intention_data_2 <- as.data.frame(matrix(nrow = 46))
+intention_data_2$y <- subset(exp_data, theme == "Intention" & roi_id == roi_2)$r_value
+intention_data_2$x <- 2 + position_width/8
+
+cost_data_2 <- as.data.frame(matrix(nrow = 46))
+cost_data_2$y <- subset(exp_data, theme == "Cost" & roi_id == roi_2)$r_value
+cost_data_2$x <- 2 + position_width/4 + position_width/8
+
+
+p <- ggplot()+
+  # 绘制条形图和标准误差 
+  # geom_hline(yintercept = 0, color = "gray", size = 3) +   # 添加水平线 , linetype = "dashed"
+  geom_bar(data = summary_data, stat = "identity", aes(x = roi_id, y = mean_value, hue = theme, color = theme), 
+           size = 6, fill = NA, width = bar_width, , position = position_dodge(width = position_width)) +
+  scale_color_manual(values = c("#76B64E", "#44E4BA", "#FFCA21", "#658DCD")) +  
+
+
+  geom_point(data = gratitude_data_1, aes(x=x, y=y), size = point_size, color = "#C5E0B4", alpha = point_alpha,
+             position=position_jitter(width=point_jitter)) +
+  geom_point(data = allocation_data_1, aes(x=x, y=y), size = point_size, color = "#CFF8ED", alpha = point_alpha,
+             position=position_jitter(width=point_jitter)) +
+  geom_point(data = intention_data_1, aes(x=x, y=y), size = point_size, color = "#FFE699", alpha = point_alpha,
+             position=position_jitter(width=point_jitter)) +
+  geom_point(data = cost_data_1, aes(x=x, y=y), size = point_size, color = "#B4C7E7", alpha = point_alpha,
+             position=position_jitter(width=point_jitter)) +
+  
+  geom_point(data = gratitude_data_2, aes(x=x, y=y), size = point_size, color = "#C5E0B4", alpha = point_alpha,
+             position=position_jitter(width=point_jitter)) +
+  geom_point(data = allocation_data_2, aes(x=x, y=y), size = point_size, color = "#CFF8ED", alpha = point_alpha,
+             position=position_jitter(width=point_jitter)) +
+  geom_point(data = intention_data_2, aes(x=x, y=y), size = point_size, color = "#FFE699", alpha = point_alpha,
+             position=position_jitter(width=point_jitter)) +
+  geom_point(data = cost_data_2, aes(x=x, y=y), size = point_size, color = "#B4C7E7", alpha = point_alpha,
+             position=position_jitter(width=point_jitter)) +
+#  
+  geom_errorbar(data = summary_data, aes(x = roi_id, ymin = mean_value - se, ymax = mean_value + se, fill = theme),
+                width = 0.2,  # 调整errorbar的宽度
+                position = position_dodge(width = position_width), size = 2.5) +  # 与条形图对齐
+# 
+# 
+# 
+  xlab("Indicator") + #横坐标名称
+  ylab("rho") + #纵坐标名称
+  theme_classic() + #去掉背景灰色
+  theme(
+    axis.title = element_text(size = 90),  # 设置坐标轴名称的大小为100
+    axis.text.y = element_text(size = 90, margin = margin(r = 20)),
+    axis.text.x = element_blank(),
+    # axis.title.y = element_text(margin = margin(r = 10 * pt_to_mm)),  # 调整y轴标题与刻度的距离
+    axis.title.x = element_blank(),
+    axis.line = element_line(color = "black", linewidth = 4),
+    legend.position = "none"
+  ) +
+  
+  scale_y_continuous(labels = scales::comma, limits = c(-0.25, 0.45), breaks = seq(-0.2, 0.4, by = 0.2)) +
+
+
+  geom_text(aes(x = 1 - position_width/4 - position_width/8, y = sig_y, label = "*"), color = "black", size = sig_size) +  
+  geom_text(aes(x = 1 - position_width/8, y = ns_y, label = "n.s."), color = "black", size = sig_size) + 
+  geom_text(aes(x = 1 + position_width/8, y = ns_y, label = "n.s."), color = "black", size = sig_size) +  
+  geom_text(aes(x = 1 + position_width/4 + position_width/8, y = sig_y, label = "***"), color = "black", size = sig_size) +
+
+  geom_text(aes(x = 2 - position_width/4 - position_width/8, y = ns_y, label = "n.s."), color = "black", size = sig_size) +  
+  geom_text(aes(x = 2 - position_width/8, y = ns_y, label = "n.s."), color = "black", size = sig_size) + 
+  geom_text(aes(x = 2 + position_width/8, y = ns_y, label = "n.s."), color = "black", size = sig_size) +  
+  geom_text(aes(x = 2 + position_width/4 + position_width/8, y = sig_y, label = "***"), color = "black", size = sig_size) 
+  
+  # guides(color = guide_legend(ncol = 2)) + # 设置图例为两列
+  # 
+  # theme(
+  #   legend.text = element_text(size = 60, margin = margin(0, 3, 0, 0.5,"cm")),
+  #   # legend.title = element_text(size = 70, margin = margin(0, 2, 0, 0,"cm")),
+  #   legend.position =  c(0.5, 0.97),
+  #   legend.key.width = unit(120, "points"),  # 设置图例项的宽度为1厘米
+  #   legend.key.height = unit(40, "points"),
+  #   # legend.key.size = unit(1, "cm")
+  #   # legend.key = element_rect(color = c("blue","black"), size = 2)
+  #   # legend.spacing.x = unit(20, "cm"),    # 调整图例项之间的间距
+  # )
+
+output_dir = paste0("E:\\lxq\\jupyter\\CMF2024\\fmri\\03_rsa\\rsa_rho\\rsa_rho_graph\\", theme, "rho_result_250309.svg")
+ggsave(output_dir, plot = p, width = width_in_inches, height = height_in_inches, units = "in")
+
+```
+
+```{r}
+
+theme <- "Allocation_ROI_11_194_"
+roi_1 <- "11"
+roi_2 <- "194"
+
+data_dir <- paste0("E:\\lxq\\jupyter\\CMF2024\\fmri\\03_rsa\\rsa_rho\\", theme, "rho_value_241230.xlsx")
+
+# 读取 Excel 文件
+exp_data <- read_excel(data_dir, sheet = 'Sheet1')
+exp_data <- na.omit(exp_data)
+
+# 计算每组的平均值和标准误差
+summary_data <- exp_data %>%
+  group_by(roi_id, theme) %>%
+  summarize(mean_value = mean(r_value), se = sd(r_value) / sqrt(length(r_value)), .groups = "drop")
+
+summary_data$theme <- factor(summary_data$theme, levels = c("Gratitude", "Allocation", "Intention", "Cost"))
+summary_data$roi_id <- factor(summary_data$roi_id, levels = c(roi_1, roi_2))
+
+
+
+gratitude_data_1 <- as.data.frame(matrix(nrow = 45))
+gratitude_data_1$y <- subset(exp_data, theme == "Gratitude" & roi_id == roi_1)$r_value
+gratitude_data_1$x <- 1 - position_width/4 - position_width/8
+
+allocation_data_1 <- as.data.frame(matrix(nrow = 46))
+allocation_data_1$y <- subset(exp_data, theme == "Allocation" & roi_id == roi_1)$r_value
+allocation_data_1$x <- 1 - position_width/8
+
+intention_data_1 <- as.data.frame(matrix(nrow = 46))
+intention_data_1$y <- subset(exp_data, theme == "Intention" & roi_id == roi_1)$r_value
+intention_data_1$x <- 1 + position_width/8
+
+cost_data_1 <- as.data.frame(matrix(nrow = 46))
+cost_data_1$y <- subset(exp_data, theme == "Cost" & roi_id == roi_1)$r_value
+cost_data_1$x <- 1 + position_width/4 + position_width/8
+
+gratitude_data_2 <- as.data.frame(matrix(nrow = 45))
+gratitude_data_2$y <- subset(exp_data, theme == "Gratitude" & roi_id == roi_2)$r_value
+gratitude_data_2$x <- 2 - position_width/4 - position_width/8
+
+allocation_data_2 <- as.data.frame(matrix(nrow = 46))
+allocation_data_2$y <- subset(exp_data, theme == "Allocation" & roi_id == roi_2)$r_value
+allocation_data_2$x <- 2 - position_width/8
+
+intention_data_2 <- as.data.frame(matrix(nrow = 46))
+intention_data_2$y <- subset(exp_data, theme == "Intention" & roi_id == roi_2)$r_value
+intention_data_2$x <- 2 + position_width/8
+
+cost_data_2 <- as.data.frame(matrix(nrow = 46))
+cost_data_2$y <- subset(exp_data, theme == "Cost" & roi_id == roi_2)$r_value
+cost_data_2$x <- 2 + position_width/4 + position_width/8
+
+
+p <- ggplot()+
+  # 绘制条形图和标准误差 
+  # geom_hline(yintercept = 0, color = "gray", size = 3) +   # 添加水平线 , linetype = "dashed"
+  geom_bar(data = summary_data, stat = "identity", aes(x = roi_id, y = mean_value, hue = theme, color = theme), 
+           size = 6, fill = NA, width = bar_width, , position = position_dodge(width = position_width)) +
+  scale_color_manual(values = c("#76B64E", "#44E4BA", "#FFCA21", "#658DCD")) +  
+
+
+  geom_point(data = gratitude_data_1, aes(x=x, y=y), size = point_size, color = "#C5E0B4", alpha = point_alpha,
+             position=position_jitter(width=point_jitter)) +
+  geom_point(data = allocation_data_1, aes(x=x, y=y), size = point_size, color = "#CFF8ED", alpha = point_alpha,
+             position=position_jitter(width=point_jitter)) +
+  geom_point(data = intention_data_1, aes(x=x, y=y), size = point_size, color = "#FFE699", alpha = point_alpha,
+             position=position_jitter(width=point_jitter)) +
+  geom_point(data = cost_data_1, aes(x=x, y=y), size = point_size, color = "#B4C7E7", alpha = point_alpha,
+             position=position_jitter(width=point_jitter)) +
+  
+  geom_point(data = gratitude_data_2, aes(x=x, y=y), size = point_size, color = "#C5E0B4", alpha = point_alpha,
+             position=position_jitter(width=point_jitter)) +
+  geom_point(data = allocation_data_2, aes(x=x, y=y), size = point_size, color = "#CFF8ED", alpha = point_alpha,
+             position=position_jitter(width=point_jitter)) +
+  geom_point(data = intention_data_2, aes(x=x, y=y), size = point_size, color = "#FFE699", alpha = point_alpha,
+             position=position_jitter(width=point_jitter)) +
+  geom_point(data = cost_data_2, aes(x=x, y=y), size = point_size, color = "#B4C7E7", alpha = point_alpha,
+             position=position_jitter(width=point_jitter)) +
+#  
+  geom_errorbar(data = summary_data, aes(x = roi_id, ymin = mean_value - se, ymax = mean_value + se, fill = theme),
+                width = 0.2,  # 调整errorbar的宽度
+                position = position_dodge(width = position_width), size = 2.5) +  # 与条形图对齐
+# 
+# 
+# 
+  xlab("Indicator") + #横坐标名称
+  ylab("rho") + #纵坐标名称
+  theme_classic() + #去掉背景灰色
+  theme(
+    axis.title = element_text(size = 90),  # 设置坐标轴名称的大小为100
+    axis.text.y = element_text(size = 90, margin = margin(r = 20)),
+    axis.text.x = element_blank(),
+    # axis.title.y = element_text(margin = margin(r = 10 * pt_to_mm)),  # 调整y轴标题与刻度的距离
+    axis.title.x = element_blank(),
+    axis.line = element_line(color = "black", linewidth = 4),
+    legend.position = "none"
+  ) +
+  
+  scale_y_continuous(labels = scales::comma, limits = c(-0.25, 0.45), breaks = seq(-0.2, 0.4, by = 0.2)) +
+
+
+  geom_text(aes(x = 1 - position_width/4 - position_width/8, y = ns_y, label = "n.s."), color = "black", size = sig_size) +  
+  geom_text(aes(x = 1 - position_width/8, y = sig_y, label = "***"), color = "black", size = sig_size) + 
+  geom_text(aes(x = 1 + position_width/8, y = sig_y, label = "***"), color = "black", size = sig_size) +  
+  geom_text(aes(x = 1 + position_width/4 + position_width/8, y = ns_y, label = "n.s."), color = "black", size = sig_size) +
+
+  geom_text(aes(x = 2 - position_width/4 - position_width/8, y = ns_y, label = "n.s."), color = "black", size = sig_size) +  
+  geom_text(aes(x = 2 - position_width/8, y = sig_y, label = "***"), color = "black", size = sig_size) + 
+  geom_text(aes(x = 2 + position_width/8, y = sig_y, label = "***"), color = "black", size = sig_size) +  
+  geom_text(aes(x = 2 + position_width/4 + position_width/8, y = sig_y, label = "*"), color = "black", size = sig_size) 
+  
+  # guides(color = guide_legend(ncol = 2)) + # 设置图例为两列
+  # 
+  # theme(
+  #   legend.text = element_text(size = 60, margin = margin(0, 3, 0, 0.5,"cm")),
+  #   # legend.title = element_text(size = 70, margin = margin(0, 2, 0, 0,"cm")),
+  #   legend.position =  c(0.5, 0.97),
+  #   legend.key.width = unit(120, "points"),  # 设置图例项的宽度为1厘米
+  #   legend.key.height = unit(40, "points"),
+  #   # legend.key.size = unit(1, "cm")
+  #   # legend.key = element_rect(color = c("blue","black"), size = 2)
+  #   # legend.spacing.x = unit(20, "cm"),    # 调整图例项之间的间距
+  # )
+
+output_dir = paste0("E:\\lxq\\jupyter\\CMF2024\\fmri\\03_rsa\\rsa_rho\\rsa_rho_graph\\", theme, "rho_result_241230.svg")
+ggsave(output_dir, plot = p, width = width_in_inches, height = height_in_inches, units = "in")
+
+```

@@ -1,0 +1,1454 @@
+---
+title: "2024_05_ThirdParty"
+output: html_document
+date: "2024-03-12"
+---
+
+```{r }
+# library
+library(multcompView)
+
+library(readxl)
+library(agricolae)
+library(ggplot2)
+library(tibble)
+library(grid)
+library(dplyr)
+```
+
+# Directary
+```{r}
+
+data_dir <- file.path("..", "figs_data", "02_Questionnaire_250407.xlsx")
+
+index_data <- read_excel(data_dir, sheet = "all")
+
+tukey_color <- "#666666"
+
+```
+
+
+### Parameter
+```{r}
+# ============================================================
+# 0. Function
+# ============================================================
+
+# 从 TukeyHSD 结果中提取多重比较字母
+generate_label_df <- function(TUKEY, variable) {
+  Tukey.levels <- TUKEY[[variable]][, 4]
+  Tukey.labels <- data.frame(multcompLetters(Tukey.levels)["Letters"])
+  Tukey.labels$treatment <- rownames(Tukey.labels)
+  Tukey.labels <- Tukey.labels[order(Tukey.labels$treatment), ]
+  return(Tukey.labels)
+}
+
+# ============================================================
+# 1. Global parameters
+# ============================================================
+
+# ---------- input / output ----------
+data_sheet <- "all"
+# output_path <- ".\\fig\\moral+friend_lollipop_260615.svg"
+
+# ---------- figure size ----------
+width_in_inches  <- 35
+height_in_inches <- 20
+
+# ---------- group order ----------
+mark_levels <- c(
+  "CAAA_H3",
+  "IAAA_H3",
+  "SAM_H1",
+  "SAL_H1",
+  "NA_H2",
+  "SAA_H4"
+)
+
+# ---------- group labels ----------
+# 纵轴显示标签
+mark_axis_labels <- c(
+  "CAAA_H3" = "CAAA_H3",
+  "IAAA_H3" = "IAAA_H3",
+  "SAM_H1"  = "SAM_H1",
+  "SAL_H1"  = "SAL_H1",
+  "NA_H2"   = "NA_H2",
+  "SAA_H4"  = "SAA_H4"
+)
+
+# ---------- Mark_all order ----------
+mark_all_levels <- c(
+  "CAA = \"Complete Asymmetric Adjustment\"",
+  "IAA = \"Incomplete Asymmetric Adjustment\"",
+  "SAM = \"Symmetric Adjustment & More Amount\"",
+  "SAL = \"Symmetric Adjustment & Less Amount\"",
+  "NA = \"No Adjustment\"",
+  "RAA = \"Reverse Asymmetric Adjustment\""
+)
+
+# ---------- colors ----------
+# mark_colors <- c(
+#   "CAAA_H3" = "#EF8A47",
+#   "IAAA_H3" = "#F7AA58",
+#   "SAM_H1"  = "#FFD06F",
+#   "SAL_H1"  = "#FFE6B7",
+#   "NA_H2"   = "#AADCE0",
+#   "SAA_H4"  = "#72BCD5"
+# )
+
+# mark_colors <- c(
+#   "CAAA_H3" = "#F2A07B",  # 桃橙
+#   "IAAA_H3" = "#F6BE8A",  # 杏橙
+# 
+#   "SAM_H1"  = "#9FD5A6",  # 薄荷绿
+#   "SAL_H1"  = "#C7E5B4",  # 鼠尾草绿
+# 
+#   "NA_H2"   = "#9CCFE8",  # 天空蓝
+#   "SAA_H4"  = "#73B8D9"   # 湖水蓝
+# )
+
+
+# mark_colors <- c(
+#   "CAAA_H3" = "#F48A6A",
+#   "IAAA_H3" = "#F7B65C",
+# 
+#   "SAM_H1"  = "#77D18D",
+#   "SAL_H1"  = "#B4DD71",
+# 
+#   "NA_H2"   = "#8DD3F2",
+#   "SAA_H4"  = "#59BCE8"
+# )
+
+
+# mark_colors <- c(
+#   "CAAA_H3" = "#F4AB8B",  
+#   "IAAA_H3" = "#F4AB8B",
+#   "SAM_H1"  = "#99C6DB",  
+#   "SAL_H1"  = "#99C6DB",
+#   "NA_H2"   = "#1A7BB9",  
+#   "SAA_H4"  = "#1A7BB9"   
+# )
+
+mark_colors <- c(
+  # -------- group 1 --------
+  "CAAA_H3" = "#F2A58A",
+  "IAAA_H3" = "#F2A58A",
+
+  # -------- group 2 --------
+  "SAM_H1"  = "#8FC9B2",
+  "SAL_H1"  = "#8FC9B2",
+
+  # -------- group 3 --------
+  "NA_H2"   = "#5FA6D6",
+  "SAA_H4"  = "#5FA6D6"
+)
+
+mark_colors <- c(
+  # -------- group 1 --------
+  "CAAA_H3" = "#F2A58A",
+  "IAAA_H3" = "#F2A58A",
+
+  # -------- group 2 --------
+  "SAM_H1"  = "#96B8D2",
+  "SAL_H1"  = "#96B8D2",
+
+  # -------- group 3 --------
+  "NA_H2"   = "#5F83A3",
+  "SAA_H4"  = "#5F83A3"
+)
+
+mark_colors <- c(
+  # -------- group 1 --------
+  "CAAA_H3" = "#F2A58A",
+  "IAAA_H3" = "#F2A58A",
+
+  # -------- group 2 --------
+  "SAM_H1"  = "#7FB4DE",
+  "SAL_H1"  = "#7FB4DE",
+
+  # -------- group 3 --------
+  "NA_H2"   = "#4E86B8",
+  "SAA_H4"  = "#4E86B8"
+)
+
+# Tukey 字母在横轴上的位置
+tukey_x_ratio <- 0.95
+
+# 2. Morality = 0 的颜色减弱
+zero_color <- "#BBBBBB"   # 更浅的灰色
+zero_alpha <- 1        # 透明度更低
+zero_line_width <- 1.5
+
+# 3. 均值数字左右偏移
+mean_label_offset_ratio <- 0.025
+mean_label_hjust_neg <- 1          # 负数：文字靠右，对应整体向左
+mean_label_hjust_pos <- 0          # 正数：文字靠左，对应整体向右
+
+# 4. x轴不要额外留白
+x_expand_setting <- expansion(mult = 0, add = 0)
+
+# ---------- lollipop style ----------
+baseline_x <- 0
+
+lollipop_line_width <- 4
+# lollipop_line_type <- 11
+# 1. lollipop 改为实线
+lollipop_line_type <- "solid"
+lollipop_line_alpha <- 1
+
+point_size <- 18
+point_shape <- 21
+point_stroke <- 4
+point_sizerange <- c(10, 30)
+
+value_bias <- 2
+
+errorbar_height <- 0.22
+errorbar_linewidth <- 2.5
+errorbar_alpha <- 0.90
+
+# ---------- mean value label ----------
+show_mean_label <- TRUE
+mean_label_digits <- 2
+mean_label_nudge_x <- 4
+mean_label_size <- 22
+mean_label_alpha <- 1
+mean_label_fontface <- "bold"
+
+# ---------- Tukey label style ----------
+tukey_size <- 30
+tukey_color <- "black"
+tukey_fontface <- "plain"
+
+# ---------- font sizes ----------
+axis_title_size <- 80
+axis_text_x_size <- 80
+axis_text_y_size <- 80
+
+# ---------- axis text spacing ----------
+axis_title_x_margin_t <- 25
+axis_text_x_margin_t <- 15
+axis_text_y_margin_r <- 15
+
+# ---------- tick style ----------
+axis_tick_linewidth <- 1
+axis_tick_color <- "black"
+axis_tick_length_cm <- 0.4
+
+# ---------- grid style ----------
+grid_x_color <- "#D0D0D0"
+grid_x_linewidth <- 1.2
+
+# ---------- border style ----------
+panel_border_color <- "black"
+panel_border_linewidth <- 2
+
+# ---------- plot margin ----------
+plot_margin_t_cm <- 2
+plot_margin_r_cm <- 2
+plot_margin_b_cm <- 2
+plot_margin_l_cm <- 2
+
+# ============================================================
+# 2. Read and preprocess data
+# ============================================================
+
+index_data <- read_excel(data_dir, sheet = data_sheet)
+
+index_data$Mark_ID <- factor(
+  index_data$Mark_ID,
+  levels = mark_levels
+)
+
+index_data$Mark_all <- factor(
+  index_data$Mark_all,
+  levels = mark_all_levels
+)
+
+# ============================================================
+# 3. Shared theme
+# ============================================================
+
+lollipop_theme <- theme_bw() +
+  theme(
+    # 只保留横向数值轴的主网格线
+    panel.grid.major.y = element_blank(),
+    panel.grid.minor = element_blank(),
+    # panel.grid.major.x = element_line(
+    #   colour = grid_x_color,
+    #   linewidth = grid_x_linewidth
+    # ),
+
+    # 面板边框
+    panel.border = element_rect(
+      colour = panel_border_color,
+      fill = NA,
+      linewidth = panel_border_linewidth
+    ),
+
+    # y 轴标题隐藏，因为 y 轴已经是类别名称
+    axis.title.y = element_blank(),
+
+    # x 轴标题
+    axis.title.x = element_text(
+      size = axis_title_size,
+      margin = margin(t = axis_title_x_margin_t)
+    ),
+
+    # y 轴类别文字
+    axis.text.y = element_text(
+      size = axis_text_y_size,
+      colour = "black",
+      margin = margin(r = axis_text_y_margin_r)
+    ),
+
+    # x 轴刻度文字
+    axis.text.x = element_text(
+      margin = margin(t = axis_text_x_margin_t),
+      size = axis_text_x_size,
+      colour = "black"
+    ),
+
+    # 坐标轴刻度线
+    axis.ticks.x = element_line(
+      linewidth = axis_tick_linewidth,
+      colour = axis_tick_color
+    ),
+    axis.ticks.y = element_blank(),
+    axis.ticks.length = unit(axis_tick_length_cm, "cm"),
+
+    # 不显示图例
+    legend.position = "none",
+
+    # 图外边距
+    plot.margin = unit(
+      c(
+        plot_margin_t_cm,
+        plot_margin_r_cm,
+        plot_margin_b_cm,
+        plot_margin_l_cm
+      ),
+      "cm"
+    )
+  )
+
+
+# ============================================================
+# Function 2: 画 lollipop 图
+# ============================================================
+
+make_lollipop_plot <- function(
+    df,
+    x_title,
+    x_min,
+    x_max,
+    x_breaks,
+    tukey_x,
+    show_zero_line = FALSE
+) {
+  
+    
+  bg_df <- data.frame(
+    ymin = c(0.5, 2.5, 4.5),
+    ymax = c(2.5, 4.5, 6.5),
+    xmin = x_min,
+    xmax = x_max,
+    fill_group = c("G1", "G2", "G3")
+  )
+  
+  df$point_size <- abs(df$mean_value) * 4
+  print(df$point_size)
+  # print(point_size)
+  p <- ggplot(df, aes(x = mean_value, y = Mark_ID)) +
+    geom_rect(
+      data = bg_df,
+      aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax, fill = fill_group),
+      inherit.aes = FALSE,
+      alpha = 0.7
+    ) +
+    scale_fill_manual(values = c(
+      # "G1" = "#E6EFF6",
+      # "G2" = "#F0F5F9",
+      # "G3" = "#FDF2EC"
+      # "G1" = "#EAF3FB",
+      # "G2" = "#ECF7F2",
+      # "G3" = "#FDF1EC"
+      "G1" = "#DDEAF6",
+      "G2" = "#EAF4FC",
+      "G3" = "#FAF2EE"
+    )) +
+  ggnewscale::new_scale_fill()
+  if (show_zero_line) {
+    p <- p +
+      geom_vline(
+        xintercept = baseline_x,
+        color = zero_color,
+        linewidth = zero_line_width,
+        alpha = zero_alpha
+      )
+  }
+
+  p +
+    geom_segment(
+      aes(
+        x = baseline_x,
+        xend = mean_value,
+        y = Mark_ID,
+        yend = Mark_ID,
+        colour = Mark_ID
+      ),
+      linewidth = lollipop_line_width,
+      linetype = lollipop_line_type,
+      alpha = lollipop_line_alpha
+    ) +
+    
+    geom_point(
+      aes(fill = Mark_ID, colour = Mark_ID, size = point_size),
+      shape = point_shape,
+      color = "white",
+      stroke = point_stroke
+    ) +
+    scale_size_continuous(range = point_sizerange) +
+
+    {
+      if (show_mean_label) {
+        geom_text(
+          aes(
+            x = mean_value + sign(mean_value) * (x_max - x_min) * mean_label_offset_ratio,
+            label = sprintf(
+              paste0("%.", mean_label_digits, "f"),
+              mean_value
+            ),
+            colour = Mark_ID,
+            hjust = ifelse(mean_value < 0, 1, 0)
+          ),
+          size = mean_label_size,
+          alpha = mean_label_alpha,
+          fontface = mean_label_fontface
+        )
+      }
+    } +
+    
+    geom_text(
+      aes(
+        x = tukey_x,
+        label = Letters
+      ),
+      size = tukey_size,
+      colour = tukey_color,
+      fontface = tukey_fontface
+    ) +
+    
+    scale_colour_manual(values = mark_colors) +
+    scale_fill_manual(values = mark_colors) +
+    scale_y_discrete(labels = mark_axis_labels, expand = c(0, 0)) +
+    scale_x_continuous(
+      limits = c(x_min, x_max),
+      breaks = x_breaks,
+      expand = x_expand_setting
+    ) +
+    labs(x = x_title) +
+    lollipop_theme
+}
+
+
+```
+
+
+## data
+```{r}
+
+# ============================================================
+# Function 1: 统计均值、SE、合并 Tukey 字母
+# ============================================================
+
+make_summary_df <- function(data, dv, tukey_letters) {
+  
+  model <- lm(as.formula(paste0(dv, " ~ Mark_ID")), data = data)
+  anova_model <- aov(model)
+  
+  tukey_res <- TukeyHSD(
+    x = anova_model,
+    "Mark_ID",
+    conf.level = 0.95
+  )
+  
+  labels_df <- generate_label_df(tukey_res, "Mark_ID")
+  
+  labels_df$treatment <- factor(
+    labels_df$treatment,
+    levels = mark_levels
+  )
+  
+  labels_df <- labels_df %>%
+    arrange(treatment)
+  
+  labels_df$Letters <- tukey_letters
+  
+  summary_df <- data %>%
+    group_by(Mark_ID) %>%
+    summarise(
+      mean_value = mean(.data[[dv]], na.rm = TRUE),
+      se_value   = sd(.data[[dv]], na.rm = TRUE) / sqrt(n()),
+      .groups = "drop"
+    ) %>%
+    left_join(
+      labels_df,
+      by = c("Mark_ID" = "treatment")
+    )
+  
+  summary_df$Mark_ID <- factor(
+    summary_df$Mark_ID,
+    levels = rev(mark_levels)
+  )
+  
+  return(summary_df)
+}
+
+
+```
+
+
+
+### Moral fig
+```{r}
+output_path <- ".\\02_fig\\model_lollipop_260615.svg"
+
+
+# ---------- axis ranges ----------
+moral_x_min <- -12
+moral_x_max <- 40
+moral_x_breaks <- seq(-10, 50, by = 10)
+
+# ---------- axis titles ----------
+moral_x_title <- "Morality"
+
+# ---------- Tukey letters ----------
+# 使用你原代码里的手动分组字母
+moral_tukey_letters <- c("a", "a", "b", "c", "bc", "d")
+moral_tukey_x <- moral_x_min + (moral_x_max - moral_x_min) * tukey_x_ratio
+
+# ============================================================
+# Morality
+# ============================================================
+
+df_moral <- make_summary_df(
+  data = index_data,
+  dv = "Moral",
+  tukey_letters = moral_tukey_letters
+)
+
+p <- make_lollipop_plot(
+  df = df_moral,
+  x_title = moral_x_title,
+  x_min = moral_x_min,
+  x_max = moral_x_max,
+  x_breaks = moral_x_breaks,
+  tukey_x = moral_tukey_x,
+  show_zero_line = TRUE
+)
+
+ggsave(
+  output_path,
+  plot = p,
+  device = "svg",
+  width = width_in_inches,
+  height = height_in_inches,
+  units = "in",
+  limitsize = FALSE
+)
+
+rm(p)
+gc()
+
+```
+
+### friendly fig
+```{r}
+
+output_path <- ".\\02_fig\\friendly_lollipop_260615.svg"
+
+friend_x_min <- 0
+friend_x_max <- 90
+friend_x_breaks <- seq(0, 80, by = 20)
+friend_x_title <- "Make-friend Willingness"
+friend_tukey_x <- friend_x_min + (friend_x_max - friend_x_min) * tukey_x_ratio
+friend_tukey_letters <- c("a", "a", "a", "b", "b", "c")
+
+# ============================================================
+# Friend
+# ============================================================
+
+df_friend <- make_summary_df(
+  data = index_data,
+  dv = "Friend_Willing",
+  tukey_letters = friend_tukey_letters
+)
+
+p <- make_lollipop_plot(
+  df = df_friend,
+  x_title = friend_x_title,
+  x_min = friend_x_min,
+  x_max = friend_x_max,
+  x_breaks = friend_x_breaks,
+  tukey_x = friend_tukey_x,
+  show_zero_line = FALSE
+)
+
+
+# ============================================================
+# Save
+# ============================================================
+
+ggsave(
+  output_path,
+  plot = p,
+  device = "svg",
+  width = width_in_inches,
+  height = height_in_inches,
+  units = "in",
+  limitsize = FALSE
+)
+
+rm(p)
+gc()
+```
+
+
+
+
+
+
+# Reciprocity Pattern
+```{r}
+
+data_dir <- file.path("..", "figs_data", "reciprocity_pattern_241125.xlsx")
+
+```
+
+```{r}
+
+width_in_inches <- 40
+height_in_inches <- 26
+
+value_size <- 50
+x_text_size <- 150
+y_text_size <- 150
+y_title_size <- 150
+plot_title_size <- 150
+line_width <- 8
+
+text_margin <- 80
+
+point_size <- 60
+
+point_colors <- c(
+  "#4F81BD",  # 蓝
+  "#5D9C59",  # 绿
+  "#D97742"   # 橙
+)
+
+# title_size <- 50
+```
+
+## Pattern 1
+```{r pattern 1}
+
+pattern_data <- read_excel(data_dir, sheet = "mark_1")
+
+line1 <- pattern_data[1:2, ]
+line2 <- pattern_data[2:3, ]
+
+pattern_data$Condition <- factor(
+  pattern_data$Condition,
+  levels = c(
+    "Uncertain_Outcome2",
+    "Uncertain_OutcomeUnknown",
+    "Uncertain_Outcome8"
+  )
+)
+
+# 绘制基本箱线图
+p <- ggplot(
+    pattern_data,
+    aes(x = Condition, y = Tokens, group = 1)
+  ) +
+  
+  geom_line(
+    data = line1,
+    aes(group = 1),
+    color = "#4F81BD",
+    linewidth = line_width
+  ) +
+
+  geom_line(
+    data = line2,
+    aes(group = 1),
+    color = "#D97742",
+    linewidth = line_width
+  ) +
+
+  # 圆点
+  geom_point(
+    aes(fill = Condition),
+    shape = 21,
+    size = point_size,
+    color = point_colors
+  ) +
+
+  scale_fill_manual(values = point_colors) +
+
+  labs(
+    title = "Complete Adaptive Asymmetric\nAdjustment (CAAA_H3)",
+    y = "Tokens",
+    x = NULL
+  ) +
+
+  scale_y_continuous(
+    limits = c(0, 20),
+    breaks = seq(0, 20, 5),
+    expand = c(0, 0)
+  ) +
+  
+  scale_x_discrete(
+    labels = c(
+      "Uncertain_Outcome2" = "U2",
+      "Uncertain_OutcomeUnknown" = "UU",
+      "Uncertain_Outcome8" = "U8"
+    )
+  ) + 
+
+  theme_bw() +
+
+  theme(
+    
+    panel.grid.major = element_line(
+      colour = "#CFCFCF",
+      linewidth = 3
+    ),
+    # panel.grid.minor = element_line(
+    #   colour = "#E5E5E5",
+    #   linewidth = 0.8
+    # ),
+    legend.position = "none",
+
+    # axis.title.x = element_blank(),
+
+    axis.text.x = element_text(
+      size = x_text_size,
+      margin = margin(t = text_margin)
+    ),
+    axis.ticks = element_blank(),
+    
+    axis.title.y = element_text(
+      size = y_title_size
+    ),
+
+    axis.text.y = element_text(
+      size = y_text_size,
+      margin = margin(r = text_margin)
+    ),
+
+    plot.title = element_text(
+      lineheight = 1.15,
+      hjust = 0.5,
+      # face = "bold",
+      size = plot_title_size,
+      margin = margin(b = 40)
+    ),
+
+    panel.border = element_rect(
+      colour = "black",
+      fill = NA,
+      linewidth = 6
+    ),
+    
+    plot.margin = margin(
+      t = 5,
+      r = 5,
+      b = 5,
+      l = 5
+    )
+  )
+  
+
+ggsave(".\\02_fig\\ques_pattern_fig\\pattern_1_CAAA_260615.svg", device = "svg", plot = p, width = width_in_inches, height = height_in_inches, units = "in")
+
+# ggsave(".\\fig\\pattern_fig\\pattern_1_CPAA_250313.pdf", device = cairo_pdf, plot = p1, width = width_in_inches, height = height_in_inches, units = "in", limitsize = FALSE)
+
+rm(p, pattern_data)
+gc()
+
+###############################################################
+
+```
+
+
+## Pattern 2
+``` {r pattern 2}
+
+
+
+pattern_data <- read_excel(data_dir, sheet = "mark_2")
+
+line1 <- pattern_data[1:2, ]
+line2 <- pattern_data[2:3, ]
+
+pattern_data$Condition <- factor(
+  pattern_data$Condition,
+  levels = c(
+    "Uncertain_Outcome2",
+    "Uncertain_OutcomeUnknown",
+    "Uncertain_Outcome8"
+  )
+)
+
+
+# 绘制基本箱线图
+p <- ggplot(
+    pattern_data,
+    aes(x = Condition, y = Tokens, group = 1)
+  ) +
+  
+  geom_line(
+    data = line1,
+    aes(group = 1),
+    color = "#4F81BD",
+    linewidth = line_width
+  ) +
+
+  geom_line(
+    data = line2,
+    aes(group = 1),
+    color = "#D97742",
+    linewidth = line_width
+  ) +
+
+  # 圆点
+  geom_point(
+    aes(fill = Condition),
+    shape = 21,
+    size = point_size,
+    color = point_colors
+  ) +
+
+  scale_fill_manual(values = point_colors) +
+
+  labs(
+    title = "Incomplete Adaptive Asymmetric\nAdjustment (IAAA_H3)",
+    y = "Tokens",
+    x = NULL
+  ) +
+
+  scale_y_continuous(
+    limits = c(0, 20),
+    breaks = seq(0, 20, 5),
+    expand = c(0, 0)
+  ) +
+  
+  scale_x_discrete(
+    labels = c(
+      "Uncertain_Outcome2" = "U2",
+      "Uncertain_OutcomeUnknown" = "UU",
+      "Uncertain_Outcome8" = "U8"
+    )
+  ) + 
+
+  theme_bw() +
+
+  theme(
+    
+    panel.grid.major = element_line(
+      colour = "#CFCFCF",
+      linewidth = 3
+    ),
+    # panel.grid.minor = element_line(
+    #   colour = "#E5E5E5",
+    #   linewidth = 0.8
+    # ),
+    legend.position = "none",
+
+    # axis.title.x = element_blank(),
+
+    axis.text.x = element_text(
+      size = x_text_size,
+      margin = margin(t = text_margin)
+    ),
+    axis.ticks = element_blank(),
+    
+    axis.title.y = element_text(
+      size = y_title_size
+    ),
+
+    axis.text.y = element_text(
+      size = y_text_size,
+      margin = margin(r = text_margin)
+    ),
+
+    plot.title = element_text(
+      lineheight = 1.15,
+      hjust = 0.5,
+      # face = "bold",
+      size = plot_title_size,
+      margin = margin(b = 40)
+    ),
+
+    panel.border = element_rect(
+      colour = "black",
+      fill = NA,
+      linewidth = 6
+    ),
+    
+    plot.margin = margin(
+      t = 5,
+      r = 5,
+      b = 5,
+      l = 5
+    )
+  )
+
+ggsave(".\\02_fig\\ques_pattern_fig\\pattern_2_IAAA_250615.svg", device = "svg", plot = p, width = width_in_inches, height = height_in_inches, units = "in")
+
+# ggsave(".\\fig\\pattern_fig\\pattern_2_IPAA_250313.pdf", device = cairo_pdf, plot = p2, width = width_in_inches, height = height_in_inches, units = "in", limitsize = FALSE)
+
+rm(p, pattern_data)
+gc()
+
+###############################################################
+
+```
+
+## Pattern 3
+``` {r pattern 3}
+
+
+
+pattern_data <- read_excel(data_dir, sheet = "mark_3")
+
+line1 <- pattern_data[1:2, ]
+line2 <- pattern_data[2:3, ]
+
+pattern_data$Condition <- factor(
+  pattern_data$Condition,
+  levels = c(
+    "Uncertain_Outcome2",
+    "Uncertain_OutcomeUnknown",
+    "Uncertain_Outcome8"
+  )
+)
+
+
+# 绘制基本箱线图
+p <- ggplot(
+    pattern_data,
+    aes(x = Condition, y = Tokens, group = 1)
+  ) +
+  
+  geom_line(
+    data = line1,
+    aes(group = 1),
+    color = "#4F81BD",
+    linewidth = line_width
+  ) +
+
+  geom_line(
+    data = line2,
+    aes(group = 1),
+    color = "#D97742",
+    linewidth = line_width
+  ) +
+
+  # 圆点
+  geom_point(
+    aes(fill = Condition),
+    shape = 21,
+    size = point_size,
+    color = point_colors
+  ) +
+
+  scale_fill_manual(values = point_colors) +
+
+  labs(
+    title = "Symmetric Adjustment & \nMore Amount (SAM_H1)",
+    y = "Tokens",
+    x = NULL
+  ) +
+
+  scale_y_continuous(
+    limits = c(0, 20),
+    breaks = seq(0, 20, 5),
+    expand = c(0, 0)
+  ) +
+  
+  scale_x_discrete(
+    labels = c(
+      "Uncertain_Outcome2" = "U2",
+      "Uncertain_OutcomeUnknown" = "UU",
+      "Uncertain_Outcome8" = "U8"
+    )
+  ) + 
+
+  theme_bw() +
+
+  theme(
+    
+    panel.grid.major = element_line(
+      colour = "#CFCFCF",
+      linewidth = 3
+    ),
+    # panel.grid.minor = element_line(
+    #   colour = "#E5E5E5",
+    #   linewidth = 0.8
+    # ),
+    legend.position = "none",
+
+    # axis.title.x = element_blank(),
+
+    axis.text.x = element_text(
+      size = x_text_size,
+      margin = margin(t = text_margin)
+    ),
+    axis.ticks = element_blank(),
+    
+    axis.title.y = element_text(
+      size = y_title_size
+    ),
+
+    axis.text.y = element_text(
+      size = y_text_size,
+      margin = margin(r = text_margin)
+    ),
+
+    plot.title = element_text(
+      lineheight = 1.15,
+      hjust = 0.5,
+      # face = "bold",
+      size = plot_title_size,
+      margin = margin(b = 40)
+    ),
+
+    panel.border = element_rect(
+      colour = "black",
+      fill = NA,
+      linewidth = 6
+    ),
+    
+    plot.margin = margin(
+      t = 5,
+      r = 5,
+      b = 5,
+      l = 5
+    )
+  )
+
+ggsave(".\\02_fig\\ques_pattern_fig\\pattern_3_SAM_250615.svg", device = "svg", plot = p, width = width_in_inches, height = height_in_inches, units = "in")
+
+# ggsave(".\\fig\\pattern_fig\\pattern_4_SAL_250308.pdf", device = cairo_pdf, plot = p4, width = width_in_inches, height = height_in_inches, units = "in", limitsize = FALSE)
+
+rm(p, pattern_data)
+gc()
+
+
+###############################################################
+
+```
+
+## Pattern 4
+``` {r pattern 4}
+
+pattern_data <- read_excel(data_dir, sheet = "mark_4")
+
+line1 <- pattern_data[1:2, ]
+line2 <- pattern_data[2:3, ]
+
+pattern_data$Condition <- factor(
+  pattern_data$Condition,
+  levels = c(
+    "Uncertain_Outcome2",
+    "Uncertain_OutcomeUnknown",
+    "Uncertain_Outcome8"
+  )
+)
+
+# 绘制基本箱线图
+p <- ggplot(
+    pattern_data,
+    aes(x = Condition, y = Tokens, group = 1)
+  ) +
+  
+  geom_line(
+    data = line1,
+    aes(group = 1),
+    color = "#4F81BD",
+    linewidth = line_width
+  ) +
+
+  geom_line(
+    data = line2,
+    aes(group = 1),
+    color = "#D97742",
+    linewidth = line_width
+  ) +
+
+  # 圆点
+  geom_point(
+    aes(fill = Condition),
+    shape = 21,
+    size = point_size,
+    color = point_colors
+  ) +
+
+  scale_fill_manual(values = point_colors) +
+
+  labs(
+    title = "Symmetric Adjustment & \nLess Amount (SAL_H1)",
+    y = "Tokens",
+    x = NULL
+  ) +
+
+  scale_y_continuous(
+    limits = c(0, 20),
+    breaks = seq(0, 20, 5),
+    expand = c(0, 0)
+  ) +
+  
+  scale_x_discrete(
+    labels = c(
+      "Uncertain_Outcome2" = "U2",
+      "Uncertain_OutcomeUnknown" = "UU",
+      "Uncertain_Outcome8" = "U8"
+    )
+  ) + 
+
+  theme_bw() +
+
+  theme(
+    
+    panel.grid.major = element_line(
+      colour = "#CFCFCF",
+      linewidth = 3
+    ),
+    # panel.grid.minor = element_line(
+    #   colour = "#E5E5E5",
+    #   linewidth = 0.8
+    # ),
+    legend.position = "none",
+
+    # axis.title.x = element_blank(),
+
+    axis.text.x = element_text(
+      size = x_text_size,
+      margin = margin(t = text_margin)
+    ),
+    axis.ticks = element_blank(),
+    
+    axis.title.y = element_text(
+      size = y_title_size
+    ),
+
+    axis.text.y = element_text(
+      size = y_text_size,
+      margin = margin(r = text_margin)
+    ),
+
+    plot.title = element_text(
+      lineheight = 1.15,
+      hjust = 0.5,
+      # face = "bold",
+      size = plot_title_size,
+      margin = margin(b = 40)
+    ),
+
+    panel.border = element_rect(
+      colour = "black",
+      fill = NA,
+      linewidth = 6
+    ),
+    
+    plot.margin = margin(
+      t = 5,
+      r = 5,
+      b = 5,
+      l = 5
+    )
+  )
+
+ggsave(".\\02_fig\\ques_pattern_fig\\pattern_4_SAL_250615.svg", device = "svg", plot = p, width = width_in_inches, height = height_in_inches, units = "in")
+
+# ggsave(".\\fig\\pattern_fig\\pattern__4_SAL_250313.pdf", device = cairo_pdf, plot = p2, width = width_in_inches, height = height_in_inches, units = "in", limitsize = FALSE)
+
+rm(p, pattern_data)
+gc()
+
+
+
+```
+
+## Pattern 5
+```{r}
+
+pattern_data <- read_excel(data_dir, sheet = "mark_5")
+
+line1 <- pattern_data[1:2, ]
+line2 <- pattern_data[2:3, ]
+
+pattern_data$Condition <- factor(
+  pattern_data$Condition,
+  levels = c(
+    "Uncertain_Outcome2",
+    "Uncertain_OutcomeUnknown",
+    "Uncertain_Outcome8"
+  )
+)
+
+
+# 绘制基本箱线图
+p <- ggplot(
+    pattern_data,
+    aes(x = Condition, y = Tokens, group = 1)
+  ) +
+  
+  geom_line(
+    data = line1,
+    aes(group = 1),
+    color = "#4F81BD",
+    linewidth = line_width
+  ) +
+
+  geom_line(
+    data = line2,
+    aes(group = 1),
+    color = "#D97742",
+    linewidth = line_width
+  ) +
+
+  # 圆点
+  geom_point(
+    aes(fill = Condition),
+    shape = 21,
+    size = point_size,
+    color = point_colors
+  ) +
+
+  scale_fill_manual(values = point_colors) +
+
+  labs(
+    title = "\nNo Adjustment (NA_H2)",
+    y = "Tokens",
+    x = NULL
+  ) +
+
+  scale_y_continuous(
+    limits = c(0, 20),
+    breaks = seq(0, 20, 5),
+    expand = c(0, 0)
+  ) +
+  
+  scale_x_discrete(
+    labels = c(
+      "Uncertain_Outcome2" = "U2",
+      "Uncertain_OutcomeUnknown" = "UU",
+      "Uncertain_Outcome8" = "U8"
+    )
+  ) + 
+
+  theme_bw() +
+
+  theme(
+    
+    panel.grid.major = element_line(
+      colour = "#CFCFCF",
+      linewidth = 3
+    ),
+    # panel.grid.minor = element_line(
+    #   colour = "#E5E5E5",
+    #   linewidth = 0.8
+    # ),
+    legend.position = "none",
+
+    # axis.title.x = element_blank(),
+
+    axis.text.x = element_text(
+      size = x_text_size,
+      margin = margin(t = text_margin)
+    ),
+    axis.ticks = element_blank(),
+    
+    axis.title.y = element_text(
+      size = y_title_size
+    ),
+
+    axis.text.y = element_text(
+      size = y_text_size,
+      margin = margin(r = text_margin)
+    ),
+
+    plot.title = element_text(
+      lineheight = 1.15,
+      hjust = 0.5,
+      # face = "bold",
+      size = plot_title_size,
+      margin = margin(b = 40)
+    ),
+
+    panel.border = element_rect(
+      colour = "black",
+      fill = NA,
+      linewidth = 6
+    ),
+    
+    plot.margin = margin(
+      t = 5,
+      r = 5,
+      b = 5,
+      l = 5
+    )
+  )
+
+ggsave(".\\02_fig\\ques_pattern_fig\\pattern_5_NA_250615.svg", device = "svg", plot = p, width = width_in_inches, height = height_in_inches, units = "in")
+
+# ggsave(".\\fig\\pattern_fig\\pattern_2_IPAA_250313.pdf", device = cairo_pdf, plot = p2, width = width_in_inches, height = height_in_inches, units = "in", limitsize = FALSE)
+
+rm(p, pattern_data)
+gc()
+
+###############################################################
+
+```
+
+
+## Pattern 6
+``` {r pattern 6}
+
+pattern_data <- read_excel(data_dir, sheet = "mark_6")
+
+line1 <- pattern_data[1:2, ]
+line2 <- pattern_data[2:3, ]
+
+pattern_data$Condition <- factor(
+  pattern_data$Condition,
+  levels = c(
+    "Uncertain_Outcome2",
+    "Uncertain_OutcomeUnknown",
+    "Uncertain_Outcome8"
+  )
+)
+
+
+# 绘制基本箱线图
+p <- ggplot(
+    pattern_data,
+    aes(x = Condition, y = Tokens, group = 1)
+  ) +
+  
+  geom_line(
+    data = line1,
+    aes(group = 1),
+    color = "#4F81BD",
+    linewidth = line_width
+  ) +
+
+  geom_line(
+    data = line2,
+    aes(group = 1),
+    color = "#D97742",
+    linewidth = line_width
+  ) +
+
+  # 圆点
+  geom_point(
+    aes(fill = Condition),
+    shape = 21,
+    size = point_size,
+    color = point_colors
+  ) +
+
+  scale_fill_manual(values = point_colors) +
+
+  labs(
+    title = "Selfish Asymmetric\nAdjustment (SAA_H4)",
+    y = "Tokens",
+    x = NULL
+  ) +
+
+  scale_y_continuous(
+    limits = c(0, 20),
+    breaks = seq(0, 20, 5),
+    expand = c(0, 0)
+  ) +
+  
+  scale_x_discrete(
+    labels = c(
+      "Uncertain_Outcome2" = "U2",
+      "Uncertain_OutcomeUnknown" = "UU",
+      "Uncertain_Outcome8" = "U8"
+    )
+  ) + 
+
+  theme_bw() +
+
+  theme(
+    
+    panel.grid.major = element_line(
+      colour = "#CFCFCF",
+      linewidth = 3
+    ),
+    # panel.grid.minor = element_line(
+    #   colour = "#E5E5E5",
+    #   linewidth = 0.8
+    # ),
+    legend.position = "none",
+
+    # axis.title.x = element_blank(),
+
+    axis.text.x = element_text(
+      size = x_text_size,
+      margin = margin(t = text_margin)
+    ),
+    axis.ticks = element_blank(),
+    
+    axis.title.y = element_text(
+      size = y_title_size
+    ),
+
+    axis.text.y = element_text(
+      size = y_text_size,
+      margin = margin(r = text_margin)
+    ),
+
+    plot.title = element_text(
+      lineheight = 1.15,
+      hjust = 0.5,
+      # face = "bold",
+      size = plot_title_size,
+      margin = margin(b = 40)
+    ),
+
+    panel.border = element_rect(
+      colour = "black",
+      fill = NA,
+      linewidth = 6
+    ),
+    
+    plot.margin = margin(
+      t = 5,
+      r = 5,
+      b = 5,
+      l = 5
+    )
+  )
+
+ggsave(".\\02_fig\\ques_pattern_fig\\pattern_6_SAA_250615.svg", device = "svg", plot = p, width = width_in_inches, height = height_in_inches, units = "in")
+
+# ggsave(".\\fig\\pattern_fig\\pattern_2_IPAA_250313.pdf", device = cairo_pdf, plot = p2, width = width_in_inches, height = height_in_inches, units = "in", limitsize = FALSE)
+
+rm(p, pattern_data)
+gc()
+
+###############################################################
+
+```
+
+
+
+

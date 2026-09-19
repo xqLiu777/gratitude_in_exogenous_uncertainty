@@ -1,0 +1,2505 @@
+# library
+```{r}
+
+# 加载包
+library(rstan)
+library(tidyverse)
+library(rstanarm)
+library(bayesplot)
+library(tidybayes)
+library(readxl)
+
+library(dplyr)
+library(ggplot2)
+library(grid)
+library(bruceR)
+library(cowplot)
+library(psych)
+library(tibble)
+library(corrplot)
+library(lme4)
+library(lmerTest)
+library(loo)
+
+library(HDInterval)
+library(patchwork)
+
+```
+# dir
+```{r}
+# 设置参数
+# set.seed(123)
+
+# 模拟参数
+n_subjects <- 43             # 被试数量
+# n_trials_per_subject <-  # 每个被试的试次数
+# total_trials <- n_subjects * n_trials_per_subject
+total_trials <- 2477
+
+stan_dir <- "E:\\lxq\\jupyter\\LeoResearch\\behavior2026\\03_model_rstan\\rstan_model\\"
+data_dir <- paste0(stan_dir, '01_data\\')
+result_dir <- paste0(stan_dir, '02_results\\')
+
+# 合并所有数据
+data_df <- read_excel("./01_data/ascertain_all_trialdata_260206.xlsx",sheet = "Sheet1")
+data_df <- data_df[grepl("^73", as.character(data_df$SubID)), ]
+
+```
+
+# model type1
+```{r}
+
+# 准备Stan数据
+data_df$SubID_stan <- as.integer(as.factor(data_df$SubID))
+
+data_df$PE_scaled <- as.numeric(scale(data_df$PE))
+
+stan_data <- list(
+  N = nrow(data_df),
+  S = n_subjects,
+  subject = data_df$SubID_stan,
+  x = data_df$PE_scaled,
+  y = data_df$alloc_var
+)
+```
+
+```{r}
+modelID_begin <- 19
+modelID_end <- 22
+model_files <- paste0("model_ascertain_", modelID_begin:modelID_end, "_260402.stan")
+
+
+for (i in 1:(modelID_end - modelID_begin + 1)) {
+  # message(paste("正在运行模型:", model_files[i])) # 增加进度提示
+  
+  sm <- stan_model(file = file.path(stan_dir, model_files[i]))
+  model_output <- tryCatch({
+    sampling(
+      object = sm,
+      data = stan_data,
+      iter = 8000,          # 进一步增加迭代次数 (原 4000)
+      warmup = 4000,        # 相应增加预热期
+      chains = 4,       
+      cores = 4,
+      seed = 123,           # 固定随机种子，方便结果复现
+      # 【加这一行！】告诉 Stan 剔除掉这三个巨型/冗余变量，只保存剩下的
+      # pars = c("mu", "z_int", "z_slo"), 
+      # include = FALSE,     # FALSE 表示“除了上面这几个，其他的我都要”
+      control = list(adapt_delta = 0.95,   # 默认0.8，提高到0.95-0.99
+                     max_treedepth = 15)   # 默认10，提高到12或15
+    )
+  }, error = function(e) {
+    message(paste("模型", model_files[i], "运行失败:", e$message))
+    return(NULL) # 出错时跳过，继续下一个
+  })
+  
+  # 保存结果（建议在循环内保存，防止断电丢失）
+  if (!is.null(model_output)) {
+    output_file <- paste0("model_ascertain_EXP3_", modelID_begin + i - 1,  "_output_260318.Rdata")
+    save(model_output, file = file.path(result_dir, output_file))
+  }
+
+  # 1. 提取 log_likelihood
+  log_lik_mat <- loo::extract_log_lik(model_output, parameter_name = "log_lik")
+  
+  # 2. 准备链的信息 (假设你是 4 条链)
+  n_chains <- 4 
+  n_iter <- nrow(log_lik_mat) / n_chains
+  chain_id <- rep(1:n_chains, each = n_iter)
+  r_eff <- relative_eff(exp(log_lik_mat), chain_id = chain_id)
+  
+  # 3. 【这行是救命的关键】必须加上 save_psis = TRUE ！！！
+  loo_result <- loo(log_lik_mat, r_eff = r_eff, save_psis = TRUE)
+  
+  # 4. 提取后验预测值
+  y_rep_samples <- rstan::extract(model_output)$y_rep
+  
+  # 5. 画图！直接把存下来的 psis_object 塞进去
+  p <- ppc_loo_pit_overlay(
+    y = data_df$alloc_var, 
+    yrep = y_rep_samples, 
+    psis_object = loo_result$psis_object
+  )
+  
+  print(p)
+}
+
+```
+
+# model type2
+```{r}
+
+# 准备Stan数据
+data_df$SubID_stan <- as.integer(as.factor(data_df$SubID))
+# data_df$PE_scaled <- as.numeric(scale(data_df$PE))
+# data_df$outcome_scaled <- as.numeric(scale(data_df$Value))
+stan_data <- list(
+  N = nrow(data_df),
+  S = n_subjects,
+  subject = data_df$SubID_stan,
+  x = data_df$Value,
+  # pe = data_df$PE_scaled,
+  y = data_df$alloc_var
+)
+```
+
+
+```{r}
+modelID_begin <- 12
+modelID_end <- 12
+model_files <- paste0("model_ascertain_", modelID_begin:modelID_end, "_260402.stan")
+
+for (i in 1:(modelID_end - modelID_begin + 1)) {
+  message(paste("正在运行模型:", model_files[i])) # 增加进度提示
+  
+  sm <- stan_model(file = file.path(stan_dir, model_files[i]))
+  model_output <- tryCatch({
+    sampling(
+      object = sm,
+      data = stan_data,
+      iter = 8000,          # 进一步增加迭代次数 (原 4000)
+      warmup = 4000,        # 相应增加预热期
+      chains = 4,       
+      cores = 4,
+      seed = 123,           # 固定随机种子，方便结果复现
+      # init = 0,
+      # 【加这一行！】告诉 Stan 剔除掉这三个巨型/冗余变量，只保存剩下的
+      # pars = c("mu", "z_int", "z_slo"), 
+      # include = FALSE,     # FALSE 表示“除了上面这几个，其他的我都要”
+      control = list(adapt_delta = 0.99,   # 默认0.8，提高到0.95-0.99
+                     max_treedepth = 15)   # 默认10，提高到12或15
+    )
+  }, error = function(e) {
+    message(paste("模型", model_files[i], "运行失败:", e$message))
+    return(NULL) # 出错时跳过，继续下一个
+  })
+  
+  # 保存结果（建议在循环内保存，防止断电丢失）
+  if (!is.null(model_output)) {
+    output_file <- paste0("model_ascertain_EXP3_", modelID_begin + i - 1, "_output_260410.Rdata")
+    save(model_output, file = file.path(result_dir, output_file))
+  }
+}
+
+```
+
+# model type3
+```{r}
+
+# 准备Stan数据
+data_df$SubID_stan <- as.integer(as.factor(data_df$SubID))
+data_df$PE_scaled <- as.numeric(scale(data_df$PE))
+data_df$outcome_scaled <- as.numeric(scale(data_df$Value))
+stan_data <- list(
+  N = nrow(data_df),
+  S = n_subjects,
+  subject = data_df$SubID_stan,
+  outcome = data_df$outcome_scaled,
+  pe = data_df$PE_scaled,
+  y = data_df$alloc_var
+)
+```
+
+
+```{r}
+modelID_begin <- 16
+modelID_end <- 16
+model_files <- paste0("model_ascertain_", modelID_begin:modelID_end, "_260402.stan")
+
+for (i in 1:(modelID_end - modelID_begin + 1)) {
+  message(paste("正在运行模型:", model_files[i])) # 增加进度提示
+  
+  sm <- stan_model(file = file.path(stan_dir, model_files[i]))
+  model_output <- tryCatch({
+    sampling(
+      object = sm,
+      data = stan_data,
+      iter = 8000,          # 进一步增加迭代次数 (原 4000)
+      warmup = 4000,        # 相应增加预热期
+      chains = 4,       
+      cores = 4,
+      seed = 123,           # 固定随机种子，方便结果复现
+      # 【加这一行！】告诉 Stan 剔除掉这三个巨型/冗余变量，只保存剩下的
+      # pars = c("mu", "z_int", "z_slo"), 
+      # include = FALSE,     # FALSE 表示“除了上面这几个，其他的我都要”
+      control = list(adapt_delta = 0.95,   # 默认0.8，提高到0.95-0.99
+                     max_treedepth = 15)   # 默认10，提高到12或15
+    )
+  }, error = function(e) {
+    message(paste("模型", model_files[i], "运行失败:", e$message))
+    return(NULL) # 出错时跳过，继续下一个
+  })
+  
+  # 保存结果（建议在循环内保存，防止断电丢失）
+  if (!is.null(model_output)) {
+    output_file <- paste0("model_ascertain_EXP3_", modelID_begin + i - 1, "_output_260410.Rdata")
+    save(model_output, file = file.path(result_dir, output_file))
+  }
+}
+
+```
+# R-hat
+```{r}
+
+output_file <- paste0("model_ascertain_EXP3_2_output_260410.Rdata")
+load(file = paste0(result_dir, output_file))
+
+# 1. 定义需要放进表格的核心参数名
+target_pars <- c("mu_int_neg", "mu_int_pos", "mu_slo_neg", "mu_slo_pos", 
+                 "sigma_int_neg", "sigma_int_pos", "sigma_slo_neg", "sigma_slo_pos", 
+                 "sigma_obs", "nu")
+
+# 2. 提取这些参数的 summary
+table_data <- summary(model_output, pars = target_pars)$summary
+
+# 3. 打印出方便填表的数据格式 (保留 3 位小数)
+print(round(table_data[, c("mean", "sd", "2.5%", "97.5%", "n_eff", "Rhat")], 8))
+
+# ==========================================
+# 4. 顺便计算一下那句文字描述里需要的“最大个体 Rhat”
+# 提取所有个体参数
+ind_summary <- summary(model_output, pars = c("int_neg", "int_pos", "slo_neg", "slo_pos"))$summary
+max_ind_rhat <- max(ind_summary[, "Rhat"], na.rm = TRUE)
+cat("\n👉 填入文字段落的【最大个体 R-hat】值为:", round(max_ind_rhat, 4), "\n")
+
+```
+
+
+
+# LOOIC compare-1
+```{r}
+#Model weights
+output_files <- paste0("model_ascertain_EXP3_", 1 : 22, "_output_260410.Rdata")
+
+loo_list <- list()
+r_eff_list <- list()
+
+for (i in 1:length(output_files)) {
+  
+  load(file = paste0(result_dir, output_files[i]))
+  
+  log_lik <- extract_log_lik(model_output, parameter_name = "log_lik", merge_chains = FALSE)
+  r_eff <- relative_eff(exp(log_lik), cores = 8)
+  loo_list[[i]] <- loo(log_lik, r_eff = r_eff, save_psis = TRUE, cores = 8)
+  
+  r_eff_list[[i]] <- list(
+    model = output_files[i],
+    r_eff_summary = summary(r_eff),
+    r_eff_min = min(r_eff),
+    r_eff_max = max(r_eff),
+    r_eff_median = median(r_eff)
+  )
+  
+  rm(model_output, log_lik, r_eff)
+}
+
+names(loo_list) <- paste0("Model_", 1 : 22)
+
+cat("=== 各模型的r_eff统计信息 ===\n")
+for (i in 1:length(r_eff_list)) {
+  cat("\n模型:", r_eff_list[[i]]$model, "\n")
+  cat("最小值:", round(r_eff_list[[i]]$r_eff_min, 4), "\n")
+  cat("最大值:", round(r_eff_list[[i]]$r_eff_max, 4), "\n")
+  cat("中位数:", round(r_eff_list[[i]]$r_eff_median, 4), "\n")
+}
+
+model_weights <- loo_model_weights(loo_list, method = "stacking")
+
+print(model_weights, digits=8)
+
+#LOOIC
+looic_comparison <- data.frame(
+  Model = names(loo_list),
+  elpd_loo = sapply(loo_list, function(x) x$estimates["elpd_loo", "Estimate"]),
+  se_elpd_loo = sapply(loo_list, function(x) x$estimates["elpd_loo", "SE"]),
+  p_loo = sapply(loo_list, function(x) x$estimates["p_loo", "Estimate"]),
+  se_p_loo = sapply(loo_list, function(x) x$estimates["p_loo", "SE"]),
+  looic = sapply(loo_list, function(x) x$estimates["looic", "Estimate"]), 
+  se_looic = sapply(loo_list, function(x) x$estimates["looic", "SE"])      
+)
+
+looic_comparison <- looic_comparison[order(looic_comparison$looic), ]
+looic_comparison$Rank <- 1:nrow(looic_comparison)
+
+best_looic <- min(looic_comparison$looic)
+looic_comparison$looic_diff <- looic_comparison$looic - best_looic
+
+looic_comparison$weight <- as.numeric(model_weights)[match(looic_comparison$Model, names(loo_list))]
+
+cat("=== 所有模型LOOIC比较表 ===\n")
+print(looic_comparison, row.names = FALSE, digits = 8)
+
+```
+# LOOIC compare-2
+```{r}
+#Model weights
+output_files <- paste0("model_ascertain_EXP3_", c(1 : 22), "_output_260318.Rdata")
+
+loo_list <- list()
+r_eff_list <- list()
+
+for (i in 1:length(output_files)) {
+  
+  load(file = paste0(result_dir, output_files[i]))
+  
+  log_lik <- extract_log_lik(model_output, parameter_name = "log_lik", merge_chains = FALSE)
+  r_eff <- relative_eff(exp(log_lik), cores = 8)
+  loo_list[[i]] <- loo(log_lik, r_eff = r_eff, save_psis = TRUE, cores = 8)
+  
+  r_eff_list[[i]] <- list(
+    model = output_files[i],
+    r_eff_summary = summary(r_eff),
+    r_eff_min = min(r_eff),
+    r_eff_max = max(r_eff),
+    r_eff_median = median(r_eff)
+  )
+  
+  rm(model_output, log_lik, r_eff)
+}
+
+names(loo_list) <- paste0("Model_", 1 : 22)
+
+cat("=== 各模型的r_eff统计信息 ===\n")
+for (i in 1:length(r_eff_list)) {
+  cat("\n模型:", r_eff_list[[i]]$model, "\n")
+  cat("最小值:", round(r_eff_list[[i]]$r_eff_min, 4), "\n")
+  cat("最大值:", round(r_eff_list[[i]]$r_eff_max, 4), "\n")
+  cat("中位数:", round(r_eff_list[[i]]$r_eff_median, 4), "\n")
+}
+
+model_weights <- loo_model_weights(loo_list, method = "stacking")
+
+print(model_weights, digits=8)
+
+#LOOIC
+looic_comparison <- data.frame(
+  Model = names(loo_list),
+  elpd_loo = sapply(loo_list, function(x) x$estimates["elpd_loo", "Estimate"]),
+  se_elpd_loo = sapply(loo_list, function(x) x$estimates["elpd_loo", "SE"]),
+  p_loo = sapply(loo_list, function(x) x$estimates["p_loo", "Estimate"]),
+  se_p_loo = sapply(loo_list, function(x) x$estimates["p_loo", "SE"]),
+  looic = sapply(loo_list, function(x) x$estimates["looic", "Estimate"]), 
+  se_looic = sapply(loo_list, function(x) x$estimates["looic", "SE"])      
+)
+
+looic_comparison <- looic_comparison[order(looic_comparison$looic), ]
+looic_comparison$Rank <- 1:nrow(looic_comparison)
+
+best_looic <- min(looic_comparison$looic)
+looic_comparison$looic_diff <- looic_comparison$looic - best_looic
+
+looic_comparison$weight <- as.numeric(model_weights)[match(looic_comparison$Model, names(loo_list))]
+
+cat("=== 所有模型LOOIC比较表 ===\n")
+print(looic_comparison, row.names = FALSE, digits = 8)
+
+```
+# 模型综合性诊断
+```{r}
+
+check_convergence_phd <- function(fit, rhat_threshold = 1.1, 
+                                  rhat_max_threshold = 1.05,
+                                  ess_threshold = 400,
+                                  hyper_regex = "mu|sigma|tau|beta|alpha") {
+  
+  summ <- summary(fit)$summary
+  rhat <- summ[, "Rhat"]
+  
+  # ---------- 1️⃣ Divergent ----------
+  sampler_params <- get_sampler_params(fit, inc_warmup = FALSE)
+  n_divergent <- sum(sapply(sampler_params, function(x) sum(x[, "divergent__"])))
+  
+  # ---------- 2️⃣ Rhat ----------
+  max_rhat <- max(rhat, na.rm = TRUE)
+  n_bad_rhat <- sum(rhat > rhat_threshold, na.rm = TRUE)
+  
+  # ---------- 3️⃣ Hyper-parameters ----------
+  hyper_idx <- grepl(hyper_regex, rownames(summ))
+  hyper_rhat <- rhat[hyper_idx]
+  max_hyper_rhat <- max(hyper_rhat, na.rm = TRUE)
+  
+  # ---------- 4️⃣ ESS ----------
+  ess <- summ[, "n_eff"]
+  min_ess <- min(ess, na.rm = TRUE)
+  mean_ess <- mean(ess, na.rm = TRUE)  # <--- 新增：计算 ESS 均值
+  n_low_ess <- sum(ess < ess_threshold, na.rm = TRUE)
+  
+  # ---------- 输出 ----------
+  cat("=====================================\n")
+  cat("博士级 Stan 收敛诊断报告\n")
+  cat("=====================================\n\n")
+  
+  cat("1️⃣ Divergent transitions:", n_divergent, "\n")
+  if(n_divergent > 0) {
+    cat("❌ 严重问题：存在 divergent transitions\n\n")
+  } else {
+    cat("✅ 无 divergent transitions\n\n")
+  }
+  
+  cat("2️⃣ 最大 Rhat:", round(max_rhat, 4), "\n")
+  cat("   Rhat >", rhat_threshold, "的参数数量:", n_bad_rhat, "\n")
+  
+  if(max_rhat > rhat_max_threshold) {
+    cat("❌ 最大 Rhat 超过", rhat_max_threshold, "\n\n")
+  } else if(max_rhat > rhat_threshold) {
+    cat("⚠ 有轻微收敛问题\n\n")
+  } else {
+    cat("✅ Rhat 表现优秀\n\n")
+  }
+  
+  cat("3️⃣ 超参数最大 Rhat:", round(max_hyper_rhat, 4), "\n")
+  if(max_hyper_rhat > rhat_threshold) {
+    cat("❌ 超参数未收敛（这是最关键问题）\n\n")
+  } else {
+    cat("✅ 超参数收敛良好\n\n")
+  }
+  
+  # 在 check_convergence_phd 函数内的第 4 模块（ESS 部分）添加：
+  
+  # ---------- 4️⃣ ESS ----------
+  ess <- summ[, "n_eff"]
+  min_ess <- min(ess, na.rm = TRUE)
+  mean_ess <- mean(ess, na.rm = TRUE)
+  n_low_ess <- sum(ess < ess_threshold, na.rm = TRUE)
+  
+  # 获取 ESS 低于阈值的参数名称
+  low_ess_params <- rownames(summ)[which(ess < ess_threshold)] # <--- 核心逻辑
+
+  # ... 之前的输出代码 ...
+
+  cat("4️⃣ ESS 统计:\n")
+  cat("   最小 ESS:", round(min_ess, 1), "\n")
+  cat("   平均 ESS:", round(mean_ess, 1), "\n")
+  cat("   ESS <", ess_threshold, "的参数数量:", n_low_ess, "\n")
+  
+  # 新增：如果有低 ESS 参数，则打印出来
+  if(n_low_ess > 0) {
+    cat("   🚨 ESS 较低的参数名 (前10个): \n")
+    print(head(low_ess_params, 10)) 
+    if(n_low_ess > 10) cat("   ... 以及其他", n_low_ess - 10, "个参数。\n")
+  }
+  
+  # ---------- 最终判断 ----------
+  cat("=====================================\n")
+  cat("🎓 综合判断：\n")
+  
+  if(n_divergent == 0 &&
+     max_rhat < rhat_threshold &&
+     max_hyper_rhat < rhat_threshold &&
+     min_ess >= ess_threshold) {
+    
+    cat("🏆 模型采样质量优秀，可放心汇报\n")
+    
+  } else if(n_divergent == 0 &&
+            max_rhat < rhat_max_threshold) {
+    
+    cat("👍 基本可接受，如用于论文建议略微优化\n")
+    
+  } else {
+    
+    cat("🚨 不建议用于正式报告，需重新参数化或调参\n")
+  }
+  
+  cat("\n=====================================\n")
+}
+
+
+begin_id = 1
+end_id = 1
+for (i in begin_id:end_id) {
+  output_file <- paste0("model_ascertain_",  i, "_EXP3_output_260315.Rdata")
+  print(paste0("model_", i))
+  
+  load(file = paste0(result_dir, output_file))
+  check_convergence_phd(model_output)
+}
+
+```
+
+
+
+# PPC，后验预测检查
+```{r}
+
+# 准备Stan数据
+data_df$SubID_stan <- as.integer(as.factor(data_df$SubID))
+data_df$PE_scaled <- as.numeric(scale(data_df$PE))
+data_df$outcome_scaled <- as.numeric(scale(data_df$Value))
+
+stan_data <- list(
+  N = nrow(data_df),
+  S = n_subjects,
+  subject = data_df$SubID_stan,
+  x = data_df$PE_scaled,
+  y = data_df$alloc_var,
+  outcome = data_df$outcome_scaled,
+  pe = data_df$PE_scaled
+)
+
+```
+
+```{r}
+#Model weights
+output_file <- paste0("model_ascertain_EXP3_2_output_260410.Rdata")
+load(file = paste0(result_dir, output_file))
+# ==========================================
+# 1. 提取基础数据
+# ==========================================
+# 真实行为数据 (一维向量，长度为 2477)
+y_real <- stan_data$y
+
+# 提取 Stan 模型生成的预测数据 y_rep 
+# 维度应为二维矩阵：[采样次数(如8000), 试次数(2477)]
+y_pred_samples <- rstan::extract(model_output)$y_rep 
+
+# 计算每个 trial 在所有 MCMC 采样中的“后验预测均值” (长度为 2477)
+y_pred_mean <- colMeans(y_pred_samples)
+
+# 将长格式数据拼成一个方便操作的数据框
+dat_ppc <- tibble(
+  subject = stan_data$subject,
+  y_true  = y_real,
+  y_pred  = y_pred_mean
+)
+```
+
+## Grand Average Scale
+```{r}
+
+# ==========================================
+# 1. 绘图与保存配置参数区
+# ==========================================
+# 文件保存设置
+file_name     <- ".\\04_pic\\PPC_grand_average_260421.svg"
+output_width  <- 8
+output_height <- 8
+output_units  <- "in"
+
+# 后验抽样与颜色设置
+n_draws       <- 100               # 随机抽取的 MCMC 迭代次数 (默认100次以防止图太拥挤)
+ppc_color     <- "blue"            # bayesplot 主题色 (可选: "blue", "red", "green", "darkgray", "teal")
+
+# 坐标轴限制 (屏蔽极端异常值)
+x_min         <- -50                 
+x_max         <- 60               
+
+# 文本标签设置
+label_title   <- "Grand-wise PPC"
+label_x       <- "ΔAllocation" # 根据你的因变量含义修改
+label_y       <- "Density"
+
+# 全局字体排版设置
+base_font_size  <- 30
+title_font_size <- 30
+
+# ==========================================
+# 2. 核心绘图代码
+# ==========================================
+
+
+# 【关键点】设置 bayesplot 专用的颜色主题
+color_scheme_set(ppc_color)
+
+# 生成密度叠加图 (从几千次抽样中随机抽取 n_draws 次)
+p_grand <- ppc_dens_overlay(
+  y = y_real, 
+  yrep = y_pred_samples[sample(1:nrow(y_pred_samples), n_draws), ]
+) +
+  # 截断 X 轴，看清主体分布
+  coord_cartesian(xlim = c(x_min, x_max)) + 
+  
+  # 标题与坐标轴标签
+  labs(title = label_title,
+       x = label_x,
+       y = label_y) +
+  
+  # 主题与字体大小应用
+  theme_bw(base_size = base_font_size) +
+  
+  # 细节精修
+  theme(
+    plot.title = element_text(hjust = 0.5, size = title_font_size),
+    axis.title = element_text(hjust = 0.5, size = title_font_size),
+    axis.text  = element_text(color = "black"),
+    legend.position = c(0.85, 0.85),  # 将图例(y vs yrep)移到顶部，为数据展示留出更多横向空间
+    #legend.text = element_text(size = 180, face = "bold"),
+    # 增大图例字体（对应你之前的需求）
+      # 1. 真正增大文字字体（单位是 pts）
+    legend.text = element_text(size = 18), 
+    
+    # 2. 真正增大图例标题字体
+    legend.title = element_text(size = 20, face = "bold"),
+    
+    # 3. 配合增大图标的大小（否则大字配小方块会很难看）
+    legend.key.size = unit(1.5, "lines"), 
+    
+    # 4. 如果文字变大后互相重叠，可以增加条目之间的垂直间距
+    legend.spacing.y = unit(0.5, "cm")
+  )
+
+# 显示图像
+print(p_grand)
+
+# ==========================================
+# 3. 执行保存
+# ==========================================
+ggsave(filename = file_name, plot = p_grand, width = output_width, height = output_height, units = output_units)
+
+```
+
+## Individual-wise
+```{r}
+# ==========================================
+# 尺度二：Individual-wise Scale (个体水平)
+# ==========================================
+# 目的：检验模型是否准确捕捉了每个被试的个体差异特征
+# 方法：按被试分组，求个体真实均值与预测均值，做相关性分析
+
+ind_ppc <- dat_ppc %>%
+  group_by(subject) %>%
+  summarise(
+    mean_true = mean(y_true, na.rm = TRUE),
+    mean_pred = mean(y_pred, na.rm = TRUE)
+  )
+```
+
+### plot
+```{r}
+
+# ==========================================
+# 1. 绘图与保存配置参数区
+# ==========================================
+# 文件保存设置
+file_name     <- ".\\04_pic\\PPC_individual_wise_260421.svg"
+output_width  <- 8
+output_height <- 8
+output_units  <- "in"
+
+# 散点设置 (针对你的 shape=21 带边框的空心圆定制)
+pt_fill  <- "#377EB8"      # 散点内部填充色 (绿色)
+pt_color <- "black"        # 散点边框颜色
+pt_shape <- 21             # 散点形状 (21表示带边框的圆)
+pt_alpha <- 0.8            # 散点透明度
+pt_size  <- 3.5            # 散点大小
+
+# 对角参考线设置
+line_color <- "red"
+line_type  <- "dashed"
+line_size  <- 1
+
+# 坐标轴与范围设置 (如果不需要截断可以去掉下方代码里的 coord_cartesian)
+axis_min <- -10              
+axis_max <- 20             
+
+# 文本标签设置
+label_title <- "Individual-wise PPC"
+label_x     <- "True Mean (per subject)"
+label_y     <- "Predicted Mean (per subject)"
+
+# 相关性文字标注设置 (需根据个体散点的分布位置微调)
+cor_pos_x     <- -10         # 文字所在的 X 轴坐标
+cor_pos_y     <- 19        # 文字所在的 Y 轴坐标
+cor_text_size <- 6         # 标注文字的大小
+
+# 全局字体排版设置
+base_font_size  <- 30
+title_font_size <- 30
+
+# ==========================================
+# 2. 计算 Spearman 相关性并生成文字
+# ==========================================
+# 计算 Spearman 相关
+ind_cor <- cor.test(ind_ppc$mean_true, ind_ppc$mean_pred, method = "spearman")
+
+# 控制台输出结果
+cat("\n=== Individual-wise PPC Correlation ===\n")
+print(ind_cor)
+
+# 生成标注文本 (Spearman 相关系数通常用 r_s 或 rho 表示)
+cor_text <- sprintf("r_s = %.2f, p %s", 
+                    ind_cor$estimate, 
+                    ifelse(ind_cor$p.value < 0.001, "< 0.001", paste0("= ", round(ind_cor$p.value, 3))))
+
+# ==========================================
+# 3. 核心绘图代码
+# ==========================================
+library(ggplot2)
+
+p_ind <- ggplot(ind_ppc, aes(x = mean_true, y = mean_pred)) +
+  
+  # 散点图层 (带有特定 shape 的点)
+  geom_point(shape = pt_shape, size = pt_size, fill = pt_fill, color = pt_color, alpha = pt_alpha) +
+  
+  # 理想预测对角线
+  geom_abline(intercept = 0, slope = 1, linetype = line_type, color = line_color, size = line_size) +
+  
+  # 强制正方形坐标轴范围 (保证 y=x 线是完美的 45 度角)
+  coord_cartesian(xlim = c(axis_min, axis_max), ylim = c(axis_min, axis_max)) + 
+  
+  # 相关性文本标注
+  annotate("text", x = cor_pos_x, y = cor_pos_y, label = cor_text, hjust = 0, size = cor_text_size, fontface = "italic") +
+  
+  # 坐标轴标签
+  labs(title = label_title,
+       x = label_x,
+       y = label_y) +
+  
+  # 主题与字体大小应用
+  theme_bw(base_size = base_font_size) + 
+  theme(
+    plot.title = element_text( hjust = 0.5, size = title_font_size),
+    axis.text  = element_text(color = "black", size = title_font_size)
+  )
+
+# 显示图像
+print(p_ind)
+
+# ==========================================
+# 4. 执行保存
+# ==========================================
+ggsave(filename = file_name, plot = p_ind, width = output_width, height = output_height, units = output_units)
+
+```
+
+## Trial-wise
+```{r}
+# ==========================================
+# 尺度三：Trial-wise Scale (试次水平)
+# ==========================================
+# 目的：检验模型是否捕捉到了每一次 trial 的动态变化
+# 方法：直接对所有的 2477 个独立观测点做相关性分析
+
+trial_cor <- cor.test(dat_ppc$y_true, dat_ppc$y_pred, method = "spearman")
+
+cat("\n=== Trial-wise PPC Correlation ===\n")
+print(trial_cor)
+```
+
+### plot
+```{r}
+# ==========================================
+# 1. 绘图配置参数区 (后续只需在这里修改)
+# ==========================================
+# 散点设置
+width_in_inches <- 8
+height_in_inches <- 8
+
+pt_color <- "#377EB8"      # 散点颜色
+pt_alpha <- 0.2            # 散点透明度 (0~1，越小越透明)
+pt_size  <- 1.5            # 散点大小
+
+# 对角参考线设置
+line_color <- "red"        # 线条颜色
+line_type  <- "dashed"     # 线型 ("solid"实线, "dashed"虚线, "dotted"点线)
+line_size  <- 1            # 线条粗细
+
+# 坐标轴与范围设置
+axis_min <- -40              # X和Y轴的最小值
+axis_max <- 60             # X和Y轴的最大值
+
+# 文本标签设置
+label_title <- "Trial-wise PPC"           # 图表主标题
+label_x     <- "True ΔAlloc (Per Trial)"       # X轴标题
+label_y     <- "Predicted ΔAlloc (Per Trial)"  # Y轴标题
+
+# 相关性文字标注设置
+cor_pos_x     <- -37         # 文字所在的 X 轴坐标 (靠近左侧)
+cor_pos_y     <- 55        # 文字所在的 Y 轴坐标 (靠近顶部)
+cor_text_size <- 6         # 标注文字的大小
+
+# 全局字体排版设置
+base_font_size <- 30       # 全局基础字号 (控制坐标轴数字、刻度等)
+title_font_size <- 30      # 主标题特大字号
+
+# ==========================================
+# 2. 计算相关性并生成文字
+# ==========================================
+cor_res <- cor.test(dat_ppc$y_true, dat_ppc$y_pred)
+
+cor_text <- sprintf("r = %.2f, p %s", 
+                    cor_res$estimate, 
+                    ifelse(cor_res$p.value < 0.001, "< 0.001", paste0("= ", round(cor_res$p.value, 3))))
+
+# ==========================================
+# 3. 核心绘图代码 (自动调用上方变量，无需修改)
+# ==========================================
+p_trial <- ggplot(dat_ppc, aes(x = y_true, y = y_pred)) +
+  
+  # 散点图层
+  geom_point(alpha = pt_alpha, color = pt_color, size = pt_size) +
+  
+  # 理想预测对角线
+  geom_abline(intercept = 0, slope = 1, 
+              linetype = line_type, color = line_color, size = line_size) +
+  
+  # 坐标轴截断
+  coord_cartesian(xlim = c(axis_min, axis_max), 
+                  ylim = c(axis_min, axis_max)) + 
+  
+  # 相关性文本标注
+  annotate("text", x = cor_pos_x, y = cor_pos_y, label = cor_text, 
+           hjust = 0, size = cor_text_size, fontface = "italic") +
+  
+  # 坐标轴标签
+  labs(title = label_title,
+       x = label_x,
+       y = label_y) +
+  
+  # 主题与字体大小应用
+  theme_bw(base_size = base_font_size) + 
+  theme(
+    plot.title = element_text( hjust = 0.5, size = title_font_size), 
+    axis.text  = element_text(color = "black", size = title_font_size)                         
+  )
+
+# 打印图像
+print(p_trial)
+ggsave(".\\04_pic\\PPC_trial_wise_260421.svg", plot = p_trial, width = width_in_inches, height = height_in_inches, units = "in")
+```
+
+
+
+
+```{r}
+
+# log_lik <- extract_log_lik(model_output, merge_chains = FALSE)
+# loo_res <- loo(log_lik)
+# pareto_k <- loo_res$diagnostics$pareto_k
+bad_id <- which(pareto_k > 0.7)
+df_sorted <- data_df[order(data_df$SubID), ]
+# for (i in bad_id){
+print(df_sorted[bad_id,c('alloc_var', 'PE')])
+# }
+  # y = y_alloc_var_data
+
+```
+
+
+
+```{r}
+
+# 步骤 (a): 设定组级真实参数 (从先验空间随机抽取)
+true_mu_epsilon <- rnorm(1, 0, 5) # 假设随机抽到一个合理的值
+true_sigma_epsilon <- abs(rnorm(1, 0, 5))
+
+# 步骤 (b): 模拟 80 名合成参与者的个体级参数
+N_sim <- 80
+T_sim <- 66
+true_epsilon_ind <- rnorm(N_sim, true_mu_epsilon, true_sigma_epsilon)
+
+# 步骤 (c): 使用生成模型（似然函数）模拟行为数据
+# 这里需要你用 R 写一个与 Stan 模型一致的数据生成函数
+simulate_data <- function(epsilon, trials) {
+  # [这里是你的认知模型核心逻辑，例如 Softmax/Drift Diffusion等]
+  # 返回一个长度为 trials 的向量
+  # 示例：简单二项分布
+  prob <- 1 / (1 + exp(-epsilon)) 
+  return(rbinom(trials, 1, prob))
+}
+
+simulated_choice <- matrix(NA, nrow = N_sim, ncol = T_sim)
+for (i in 1:N_sim) {
+  simulated_choice[i, ] <- simulate_data(true_epsilon_ind[i], T_sim)
+}
+
+# 步骤 (d): 重新拟合生成的数据
+sim_stan_data <- list(N = N_sim, T = T_sim, choice = simulated_choice)
+fit_sim <- stan(file = "winning_model.stan", data = sim_stan_data, 
+                chains = 4, iter = 4000, warmup = 2000, cores = 4)
+
+# 步骤 (e): 比较真实值与后验估计值
+# 提取个体级参数的后验均值
+est_epsilon_ind <- summary(fit_sim, pars = "epsilon")$summary[, "mean"]
+
+# 绘制参数恢复图
+ggplot(data.frame(True = true_epsilon_ind, Estimated = est_epsilon_ind), aes(x = True, y = Estimated)) +
+  geom_point(alpha = 0.6, color = "blue", size = 3) +
+  geom_abline(intercept = 0, slope = 1, color = "red", linetype = "dashed", size = 1) +
+  ggtitle("Parameter Recovery: True vs. Estimated Individual Parameters") +
+  xlab("True Parameters (Generating)") +
+  ylab("Estimated Parameters (Posterior Mean)") +
+  theme_bw()
+
+# 计算恢复的 Pearson 相关系数
+cat("Parameter Recovery Correlation:", cor(true_epsilon_ind, est_epsilon_ind), "\n")
+
+```
+
+# Parameter's pp
+```{r}
+# 1. 提取后验样本
+# 假设你想画这四个核心群体参数
+posterior_samples <- model_output %>%
+  spread_draws(mu_int_pos, sigma_int_pos, z_int_pos[subject],
+               mu_int_neg, sigma_int_neg, z_int_neg[subject],
+               mu_slo_pos, sigma_slo_pos, z_slo_pos[subject],
+               mu_slo_neg, sigma_slo_neg, z_slo_neg[subject]) %>%
+  mutate(
+    int_pos = mu_int_pos + sigma_int_pos * z_int_pos,
+    int_neg = mu_int_neg + sigma_int_neg * z_int_neg,
+    slo_pos = mu_slo_pos + sigma_slo_pos * z_slo_pos,
+    slo_neg = mu_slo_neg + sigma_slo_neg * z_slo_neg
+  ) %>%
+  # 选定你想展示的计算后的参数
+  pivot_longer(cols = c(int_pos, int_neg, slo_pos, slo_neg), 
+               names_to = "parameter", 
+               values_to = "value")
+
+# 2. 绘图 (注意：这会把所有被试的数据混在一起画出分布)
+ggplot(posterior_samples, aes(x = value, y = parameter, fill = parameter)) +
+  stat_halfeye(.width = 0.95) +
+  # 添加垂直参考线 (可选，如果想强调 0)
+  geom_vline(xintercept = 0, linetype = "dashed", alpha = 0.3) +
+  labs(
+    title = "Posterior Distributions of Group-level Parameters",
+    subtitle = "Vertical lines show medians; blue shading represents 95% HDI",
+    x = "Parameter Value",
+    y = "Group-level Hyperparameters"
+  ) +
+  theme_minimal() +
+  theme(
+    legend.position = "none", # 因为 y 轴已经有名字了
+    axis.text = element_text(size = 12),
+    axis.title = element_text(size = 14, face = "bold"),
+    plot.title = element_text(hjust = 0.5, size = 16)
+  )
+
+```
+
+# Parameter recovery
+
+```{r}
+
+library(rstan)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+
+# =========================
+# 1. Simulate data
+# =========================
+simulate_data <- function(S = 43, trials_per_subj = 60, seed = 123) {
+  set.seed(seed)
+  
+  true_hyper <- list(
+    mu_int_neg = -0.74, sigma_int_neg = 3,
+    mu_int_pos = 4.70, sigma_int_pos = 4,
+    mu_slo_neg = 3.08, sigma_slo_neg = 1,
+    mu_slo_pos = 3.37, sigma_slo_pos = 1,
+    sigma_obs  = 2,
+    nu = 4
+  )
+  
+  z_int_neg <- rnorm(S)
+  z_int_pos <- rnorm(S)
+  z_slo_neg <- rnorm(S)
+  z_slo_pos <- rnorm(S)
+  
+  int_neg <- true_hyper$mu_int_neg + true_hyper$sigma_int_neg * z_int_neg
+  int_pos <- true_hyper$mu_int_pos + true_hyper$sigma_int_pos * z_int_pos
+  
+  # 斜率不做 exp()，允许为负
+  slo_neg <- true_hyper$mu_slo_neg + true_hyper$sigma_slo_neg * z_slo_neg
+  slo_pos <- true_hyper$mu_slo_pos + true_hyper$sigma_slo_pos * z_slo_pos
+  
+  N <- S * trials_per_subj
+  subject <- rep(1:S, each = trials_per_subj)
+  x <- rnorm(N, 0, 1)
+  y <- numeric(N)
+  
+  for (i in 1:N) {
+    s <- subject[i]
+    
+    mu <- ifelse(
+      x[i] < 0,
+      int_neg[s] + slo_neg[s] * x[i],
+      int_pos[s] + slo_pos[s] * x[i]
+    )
+    
+    y[i] <- mu + true_hyper$sigma_obs * rt(1, df = true_hyper$nu)
+  }
+  
+  y <- pmax(pmin(y, 50), -50)
+  
+  true_ind <- data.frame(
+    subject = 1:S,
+    int_neg = int_neg,
+    int_pos = int_pos,
+    slo_neg = slo_neg,
+    slo_pos = slo_pos
+  )
+  
+  list(
+    stan_data = list(
+      N = N,
+      S = S,
+      subject = subject,
+      x = x,
+      y = y
+    ),
+    true_hyper = true_hyper,
+    true_ind = true_ind
+  )
+}
+
+# =========================
+# 2. Fit Stan model
+# =========================
+sim <- simulate_data(
+  S = 43,
+  trials_per_subj = 60,
+  seed = 123
+)
+
+fit_recovery <- stan(
+  file = "model_ascertain_2_260402.stan",
+  data = sim$stan_data,
+  chains = 4,
+  iter = 2000,
+  warmup = 1000,
+  cores = 4,
+  seed = 42
+)
+
+# =========================
+# 3. Extract recovered parameters
+# =========================
+post <- rstan::extract(fit_recovery)
+
+rec_ind <- data.frame(
+  subject = 1:sim$stan_data$S,
+  int_neg = colMeans(post$int_neg),
+  int_pos = colMeans(post$int_pos),
+  slo_neg = colMeans(post$slo_neg),
+  slo_pos = colMeans(post$slo_pos)
+)
+
+# =========================
+# 4. Build recovery dataframe
+# =========================
+df_recovery <- sim$true_ind %>%
+  pivot_longer(
+    cols = -subject,
+    names_to = "parameter",
+    values_to = "true"
+  ) %>%
+  left_join(
+    rec_ind %>%
+      pivot_longer(
+        cols = -subject,
+        names_to = "parameter",
+        values_to = "recovered"
+      ),
+    by = c("subject", "parameter")
+  )
+
+# =========================
+# 5. Recovery correlation
+# =========================
+
+# 每个参数各自的 recovery r
+recovery_by_param <- df_recovery %>%
+  group_by(parameter) %>%
+  summarise(
+    r = cor(true, recovered),
+    p = cor.test(true, recovered)$p.value,
+    .groups = "drop"
+  )
+
+print(recovery_by_param)
+
+# 所有参数拼接后的 overall recovery r
+overall_test <- cor.test(
+  df_recovery$true,
+  df_recovery$recovered
+)
+
+cat("\nOverall parameter recovery:\n")
+cat("r =", round(overall_test$estimate, 3), "\n")
+cat("95% CI = [",
+    round(overall_test$conf.int[1], 3), ", ",
+    round(overall_test$conf.int[2], 3), "]\n", sep = "")
+cat("t(", overall_test$parameter, ") = ",
+    round(overall_test$statistic, 3), "\n", sep = "")
+cat("p =", signif(overall_test$p.value, 3), "\n")
+
+# =========================
+# 6. Simple recovery plot
+# =========================
+p_recovery <- ggplot(
+  df_recovery,
+  aes(x = true, y = recovered)
+) +
+  geom_point(alpha = 0.55, size = 2) +
+  geom_abline(
+    intercept = 0,
+    slope = 1,
+    linetype = "dashed",
+    linewidth = 1
+  ) +
+  facet_wrap(~ parameter, scales = "free") +
+  theme_bw() +
+  labs(
+    title = paste0(
+      "Parameter recovery: overall r = ",
+      round(overall_test$estimate, 2)
+    ),
+    x = "True parameter",
+    y = "Recovered posterior mean"
+  )
+
+print(p_recovery)
+
+```
+
+```{r}
+
+recovery_by_param <- df_recovery %>%
+  group_by(parameter) %>%
+  summarise(
+    test = list(cor.test(true, recovered)),
+    .groups = "drop"
+  ) %>%
+  rowwise() %>%
+  mutate(
+    r = unname(test$estimate),
+    t = unname(test$statistic),
+    df = unname(test$parameter),
+    p = test$p.value,
+    ci_low = test$conf.int[1],
+    ci_high = test$conf.int[2]
+  ) %>%
+  select(
+    parameter,
+    r,
+    t,
+    df,
+    p,
+    ci_low,
+    ci_high
+  )
+
+recovery_by_param
+
+```
+
+```{r}
+
+library(openxlsx)
+
+write.xlsx(
+  recovery_by_param,
+  file = "./04_parameter_recovery/parameter_recovery_results_260621.xlsx",
+  rowNames = FALSE
+)
+
+
+```
+
+
+```{r}
+
+# ==========================================
+# 步骤 1: 构建数据生成器
+# ==========================================
+simulate_data <- function(S = 40, trials_per_subj = 60, seed = 123) {
+  set.seed(seed)
+  
+  # 1. 设定真实的群体水平超参数 (Hyperparameters)
+  # 这些值是你希望模型最终能找回来的“上帝视角”真实值
+  true_params <- list(
+    mu_int_neg = -5.0,  sigma_int_neg = 3.0,
+    mu_int_pos =  5.0,  sigma_int_pos = 4.0,
+    # 注意：斜率的 mu 是在 log 尺度上的，exp(0.5) 约为 1.6
+    mu_slo_neg =  0.5,  sigma_slo_neg = 0.2, 
+    mu_slo_pos =  0.8,  sigma_slo_pos = 0.3,
+    sigma_obs  =  8.0,  # 观测噪声
+    nu         =  4.0   # Student-t 的自由度，越小尾巴越厚
+  )
+  
+  # 2. 模拟个体水平参数 (使用非中心参数化逻辑)
+  # 生成标准正态分布的扰动项 z
+  z_int_neg <- rnorm(S, 0, 1)
+  z_int_pos <- rnorm(S, 0, 1)
+  z_slo_neg <- rnorm(S, 0, 1)
+  z_slo_pos <- rnorm(S, 0, 1)
+  
+  # 转换为实际的个体参数 (严格对齐 transformed parameters 模块)
+  # 截距是线性组合
+  int_neg <- true_params$mu_int_neg + true_params$sigma_int_neg * z_int_neg
+  int_pos <- true_params$mu_int_pos + true_params$sigma_int_pos * z_int_pos
+  # 斜率带有 exp() 转换保证大于 0
+  slo_neg <- true_params$mu_slo_neg + true_params$sigma_slo_neg * z_slo_neg
+  slo_pos <- true_params$mu_slo_pos + true_params$sigma_slo_pos * z_slo_pos
+  
+  # 3. 生成实验设计和行为数据
+  N <- S * trials_per_subj
+  subject <- rep(1:S, each = trials_per_subj)
+  x <- rnorm(N, 0, 1) # 生成标准化的 x 变量
+  y <- numeric(N)
+  
+  # 逐 trial 生成数据
+  for (i in 1:N) {
+    s <- subject[i]
+    
+    # 核心分段逻辑
+    if (x[i] < 0) {
+      mu_gen <- int_neg[s] + slo_neg[s] * x[i]
+    } else {
+      mu_gen <- int_pos[s] + slo_pos[s] * x[i]
+    }
+    
+    # 加入 Student-t 噪声
+    # R 语言的 rt() 生成的是标准 t 分布，需要乘以尺度参数并加上位置参数
+    y[i] <- mu_gen + true_params$sigma_obs * rt(1, df = true_params$nu)
+  }
+  
+  # 根据你的 Stan 代码注释，y 的范围被截断在 [-50, 50]
+  y <- pmax(pmin(y, 50), -50)
+  
+  # 将真实的个体参数打包，用于后续核对
+  true_ind_params <- data.frame(
+    subject = 1:S,
+    int_neg = int_neg, int_pos = int_pos,
+    slo_neg = slo_neg, slo_pos = slo_pos
+  )
+  
+  # 返回生成的数据和真实参数
+  return(list(
+    stan_data = list(N = N, S = S, subject = subject, x = x, y = y),
+    true_hyper = true_params,
+    true_ind = true_ind_params
+  ))
+}
+
+# ==========================================
+# 步骤 2: 拟合模型
+# ==========================================
+# 生成虚拟数据 (比如 40 个人，每人 60 个 trial)
+sim_output <- simulate_data(S = 40, trials_per_subj = 60)
+
+# 调用 rstan 拟合你写好的 stan 模型 (假设文件名为 piecewise_model.stan)
+fit_recovery <- stan(
+  file = "model_ascertain_2_260402.stan", 
+  data = sim_output$stan_data,
+  chains = 4, 
+  iter = 2000, 
+  warmup = 1000,
+  cores = 4,
+  seed = 42 # 固定种子，保证结果可复现
+)
+
+# ==========================================
+# 步骤 3: 提取后验并可视化
+# ==========================================
+# 从模型中提取后验样本
+post_samples <- rstan::extract(fit_recovery)
+
+# --- 1. 检查个体水平参数恢复 (散点图) ---
+# 提取后验均值
+est_int_neg <- colMeans(post_samples$int_neg)
+est_int_pos <- colMeans(post_samples$int_pos)
+est_slo_neg <- colMeans(post_samples$slo_neg)
+est_slo_pos <- colMeans(post_samples$slo_pos)
+
+# 组合成数据框
+df_ind_recovery <- data.frame(
+  True = c(sim_output$true_ind$int_neg, sim_output$true_ind$int_pos, 
+           sim_output$true_ind$slo_neg, sim_output$true_ind$slo_pos),
+  Estimated = c(est_int_neg, est_int_pos, est_slo_neg, est_slo_pos),
+  Parameter = factor(rep(c("Intercept (x < 0)", "Intercept (x >= 0)", 
+                           "Slope (x < 0)", "Slope (x >= 0)"), 
+                         each = sim_output$stan_data$S))
+)
+
+# 画个体水平散点图
+p_ind <- ggplot(df_ind_recovery, aes(x = True, y = Estimated, color = Parameter)) +
+  geom_point(alpha = 0.7, size = 2) +
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "black", linewidth = 1) +
+  facet_wrap(~Parameter, scales = "free") +
+  labs(title = "Individual-level Parameter Recovery",
+       x = "True Generated Value", y = "Estimated Posterior Mean") +
+  theme_bw() +
+  theme(legend.position = "none")
+
+print(p_ind)
+
+# --- 2. 检查群体水平参数恢复 (后验分布图) ---
+# 检查这四个核心群体均值
+hyper_params_to_check <- c("mu_int_neg", "mu_int_pos", "mu_slo_neg", "mu_slo_pos")
+
+plot_list <- list()
+for (param in hyper_params_to_check) {
+  
+  # 提取真实值和后验分布
+  true_val <- sim_output$true_hyper[[param]]
+  post_dist <- post_samples[[param]]
+  
+  # 计算 95% 贝叶斯置信区间 (HDI)
+  hdi_lower <- quantile(post_dist, 0.025)
+  hdi_upper <- quantile(post_dist, 0.975)
+  
+  # 画密度图
+  plot_list[[param]] <- ggplot(data.frame(x = post_dist), aes(x = x)) +
+    geom_density(fill = "skyblue", alpha = 0.5) +
+    geom_vline(xintercept = true_val, color = "red", linetype = "solid", linewidth = 1.2) +
+    geom_vline(xintercept = c(hdi_lower, hdi_upper), color = "gray40", linetype = "dashed") +
+    labs(title = param, x = "Posterior Estimate", y = "Density") +
+    theme_minimal()
+}
+
+# 拼图并展示群体参数恢复
+p_group <- wrap_plots(plot_list, ncol = 2) + 
+  plot_annotation(title = "Group-level Hyperparameter Recovery",
+                  subtitle = "Red line = True Value, Dashed lines = 95% CrI")
+print(p_group)
+
+
+```
+
+# Model Recovery
+```{r}
+
+# ---------------------------------------------------------
+# 0. 路径设置 (请确保路径正确)
+# ---------------------------------------------------------
+stan_dir <- "E:\\lxq\\analysis\\2026winter\\rstan_model\\"
+result_dir <- paste0(stan_dir, "03_model_recovery\\")
+if (!dir.exists(result_dir)) {
+  dir.create(result_dir, recursive = TRUE)
+}
+
+# ---------------------------------------------------------
+# 1. 定义你要参与模型恢复的模型编号 
+# ---------------------------------------------------------
+target_models <- c(1, 2, 3, 4, 9, 10, 17, 18) 
+n_datasets_per_model <- 10        # 每个模型生成几套虚拟数据 
+
+# ---------------------------------------------------------
+# 2. 占位：数据生成函数的分发器
+# ---------------------------------------------------------
+generate_sim_data <- function(model_id, S = 43, trials = 60, seed = 123) {
+  set.seed(seed)
+  if (model_id == 1) {
+    return(simulate_data_model1(S, trials))
+  } else if (model_id == 2) {
+    return(simulate_data_model2(S, trials))
+  } else if (model_id == 3) {
+    return(simulate_data_model3(S, trials))
+  } else if (model_id == 4) {
+    return(simulate_data_model4(S, trials))
+  } else if (model_id == 9) {
+    return(simulate_data_model9(S, trials))
+  } else if (model_id == 10) {
+    return(simulate_data_model10(S, trials))
+  } else if (model_id == 17) {
+    return(simulate_data_model17(S, trials))
+  } else if (model_id == 20) {
+    return(simulate_data_model20(S, trials))
+  }
+}
+
+# ---------------------------------------------------------
+# 3. 核心双重循环：生成数据 -> 交叉拟合
+# ---------------------------------------------------------
+# 记录结果的大表
+recovery_results <- data.frame()
+
+for (gen_id in target_models) {
+  cat(sprintf("\n🚀 开始使用模型 %d 生成数据...\n", gen_id))
+  
+  for (dataset_idx in 1:n_datasets_per_model) {
+    cat(sprintf("   -> 正在处理第 %d/%d 套数据集\n", dataset_idx, n_datasets_per_model))
+    
+    # a. 生成虚拟数据
+    # 为了保证每套数据集都不一样，传入动态的 seed
+    sim_data <- generate_sim_data(gen_id, S = 43, trials = 57, seed = gen_id * 1000 + dataset_idx) 
+    
+    # 【新增】：保存生成的虚拟数据和真实参数，用于后续参数恢复比对
+    sim_file <- sprintf("%s/SimData_genM%d_dataset%d.rds", result_dir, gen_id, dataset_idx)
+    saveRDS(sim_data, file = sim_file)
+    
+    # 临时存储这套数据集下，各个拟合模型的 LOOIC
+    loo_scores <- numeric(length(target_models))
+    names(loo_scores) <- paste0("Fit_", target_models)
+    
+    # b. 用所有候选模型去拟合这套虚拟数据
+    for (fit_idx in 1:length(target_models)) {
+      fit_id <- target_models[fit_idx]
+      model_file <- paste0("model_ascertain_", fit_id, "_260402.stan") 
+      
+      cat(sprintf("      拟合模型 %d ... ", fit_id))
+      
+      # 使用 tryCatch 防止报错中断循环
+      fit_result <- tryCatch({
+        stan(
+          file = file.path(stan_dir, model_file),
+          data = sim_data$stan_data,  # 【关键修正】：提取列表中的 stan_data 喂给模型
+          chains = 4, iter = 4000, warmup = 2000, cores = 4,
+          control = list(adapt_delta = 0.95),
+          refresh = 0 
+        )
+      }, error = function(e) {
+        cat("❌ 失败! 错误信息:", e$message, "\n")
+        return(NULL)
+      })
+      
+      # c. 提取 LOOIC 并保存关键参数
+      if (!is.null(fit_result)) {
+        
+        # 1. 提取 LOOIC
+        log_lik <- extract_log_lik(fit_result, merge_chains = FALSE)
+        r_eff <- relative_eff(exp(log_lik), cores = 4)
+        loo_res <- loo(log_lik, r_eff = r_eff)
+        loo_scores[fit_idx] <- loo_res$estimates["looic", "Estimate"]
+        
+        # 2. 提取参数摘要（智能过滤掉 y_rep 和 log_lik，极大节省空间）
+        all_pars <- fit_result@model_pars
+        keep_pars <- all_pars[!grepl("^(y_rep|log_lik)", all_pars)] 
+        param_summary <- summary(fit_result, pars = keep_pars)$summary
+        
+        # 3. 打包并保存关键数据到硬盘
+        key_data <- list(
+          generating_model = gen_id,
+          fitted_model = fit_id,
+          dataset_id = dataset_idx,
+          looic_score = loo_scores[fit_idx],
+          loo_object = loo_res,       
+          param_summary = param_summary 
+        )
+        key_file <- sprintf("%s/KeyData_genM%d_fitM%d_dataset%d.rds", result_dir, gen_id, fit_id, dataset_idx)
+        saveRDS(key_data, file = key_file)
+        
+        cat("✅ 完成 (LOOIC:", round(loo_scores[fit_idx], 1), ")\n")
+        
+        # 清理内存，防止溢出
+        rm(fit_result, log_lik, r_eff, loo_res, param_summary, key_data)
+        gc()
+      } else {
+        loo_scores[fit_idx] <- NA # 拟合失败记为 NA
+      }
+    }
+    
+    # d. 找出 LOOIC 最小（表现最好）的模型
+    best_fit_idx <- which.min(loo_scores)
+    best_fit_id <- target_models[best_fit_idx]
+    
+    # e. 记录这一轮的结果
+    current_res <- data.frame(
+      Dataset_ID = dataset_idx,
+      Generating_Model = paste0("M", gen_id),
+      Best_Fitting_Model = paste0("M", best_fit_id)
+    )
+    # 把所有拟合的 LOOIC 也存下来
+    for(k in 1:length(target_models)) {
+      current_res[[paste0("LOOIC_M", target_models[k])]] <- loo_scores[k]
+    }
+    
+    recovery_results <- bind_rows(recovery_results, current_res)
+    
+    # f. 【核心保险】每跑完一套数据集，立刻存盘
+    write.csv(recovery_results, 
+              file = file.path(result_dir, "model_recovery_temp_results.csv"), 
+              row.names = FALSE)
+  }
+}
+
+cat("\n🎉 全部模型恢复运行完毕！\n")
+
+```
+
+## Model-1
+```{r}
+
+simulate_data_model1 <- function(S = 43, trials_per_subj = 57, seed = 123) {
+  # 固定随机种子
+  set.seed(seed)
+  
+  # ========================================================
+  # 1. 设定真实的群体水平参数 (Hyperparameters)
+  # ========================================================
+  true_params <- list(
+    mu_int =  5.0,   # 截距的群体均值
+    mu_slo =  2.0,   # 斜率的群体均值 (这里没有 exp，直接是线性斜率)
+    
+    sigma_int = 4.0, # 截距的群体标准差
+    sigma_slo = 1.5, # 斜率的群体标准差
+    
+    sigma_obs = 8.0, # 观测噪声尺度
+    nu = 4.0         # Student-t 的自由度
+  )
+  
+  # ========================================================
+  # 2. 模拟个体参数 (对应 parameters 和 transformed parameters)
+  # ========================================================
+  # 生成非中心化扰动项 z (标准正态分布)
+  z_int <- rnorm(S, mean = 0, sd = 1)
+  z_slo <- rnorm(S, mean = 0, sd = 1)
+  
+  # 转换为实际的个体参数 (纯线性组合，无 exp 转换)
+  inter <- true_params$mu_int + true_params$sigma_int * z_int
+  slope <- true_params$mu_slo + true_params$sigma_slo * z_slo
+  
+  # ========================================================
+  # 3. 模拟行为数据 (对应 model 和 generated quantities)
+  # ========================================================
+  N <- S * trials_per_subj
+  subject <- rep(1:S, each = trials_per_subj)
+  
+  # 生成自变量 x (标准化：均值0，标准差1)
+  x <- rnorm(N, mean = 0, sd = 1)
+  
+  # 【核心修改】：因为没有分段逻辑，这里可以直接使用 R 的向量化计算，无需写 for 循环
+  # 这一行完美对应你 Stan 模型中的: vector[N] mu = inter[subject] + slope[subject] .* x;
+  mu_gen <- inter[subject] + slope[subject] * x
+  
+  # 生成 Student-t 噪声
+  # rt(N, df) 生成 N 个标准 t 分布的随机数，乘以尺度参数并加上均值
+  y <- mu_gen + true_params$sigma_obs * rt(N, df = true_params$nu)
+  
+  # 根据你之前设定的因变量物理意义，依然将其截断在 [-50, 50] 之间
+  y <- pmax(pmin(y, 50), -50)
+  
+  # ========================================================
+  # 4. 打包输出
+  # ========================================================
+  # 组装给 Stan 的输入数据
+  stan_data <- list(
+    N = N,
+    S = S,
+    subject = subject,
+    x = x,
+    y = y
+  )
+  
+  # 真实的个体参数表
+  true_ind_params <- data.frame(
+    subject = 1:S,
+    inter = inter, 
+    slope = slope
+  )
+  
+  return(list(
+    stan_data  = stan_data,
+    true_hyper = true_params,
+    true_ind   = true_ind_params
+  ))
+}
+
+# 测试运行
+# sim_result <- simulate_data_linear(S = 43, trials_per_subj = 57)
+# head(sim_result$stan_data$y)
+
+```
+
+
+## Model-2
+```{r}
+
+simulate_data_model2 <- function(S = 43, trials_per_subj = 57, seed = 123) {
+  # 固定随机种子以保证结果可重复
+  set.seed(seed)
+  
+  # ========================================================
+  # 1. 设定真实的群体水平参数 (Hyperparameters)
+  # ========================================================
+  true_params <- list(
+    # 截距群体均值
+    mu_int_neg = -5.0,  
+    mu_int_pos =  5.0,  
+    
+    # 斜率群体均值 (纯线性斜率)
+    mu_slo_neg =  2.0,  
+    mu_slo_pos =  1.5,  
+    
+    # 群体水平标准差
+    sigma_int_neg = 4.0,
+    sigma_int_pos = 4.0,
+    sigma_slo_neg = 1.0,
+    sigma_slo_pos = 1.0,
+    
+    # 观测噪声尺度与 Student-t 自由度
+    sigma_obs = 8.0,
+    nu = 4.0   # Stan中设了 <lower=2>，所以这里必须 >= 2
+  )
+  
+  # ========================================================
+  # 2. 模拟个体参数 (对应 parameters 和 transformed parameters)
+  # ========================================================
+  # 生成非中心化扰动项 z (标准正态分布)
+  z_int_neg <- rnorm(S, mean = 0, sd = 1)
+  z_int_pos <- rnorm(S, mean = 0, sd = 1)
+  z_slo_neg <- rnorm(S, mean = 0, sd = 1)
+  z_slo_pos <- rnorm(S, mean = 0, sd = 1)
+  
+  # 转换为实际的个体参数 (纯线性组合，与 transformed parameters 完全一致)
+  int_neg <- true_params$mu_int_neg + true_params$sigma_int_neg * z_int_neg
+  int_pos <- true_params$mu_int_pos + true_params$sigma_int_pos * z_int_pos
+  slo_neg <- true_params$mu_slo_neg + true_params$sigma_slo_neg * z_slo_neg
+  slo_pos <- true_params$mu_slo_pos + true_params$sigma_slo_pos * z_slo_pos
+  
+  # ========================================================
+  # 3. 模拟行为数据 (对应 model 和 generated quantities)
+  # ========================================================
+  N <- S * trials_per_subj
+  subject <- rep(1:S, each = trials_per_subj)
+  
+  # 生成自变量 x (标准化：均值0，标准差1)
+  x <- rnorm(N, mean = 0, sd = 1)
+  
+  # 【核心逻辑】：使用 ifelse() 完美替代 for 循环，实现极速的分段向量化计算
+  # 等效于你 Stan 里的 if (x[n] < 0) { ... } else { ... }
+  mu_gen <- ifelse(
+    x < 0, 
+    int_neg[subject] + slo_neg[subject] * x,  # x < 0 时的期望值
+    int_pos[subject] + slo_pos[subject] * x   # x >= 0 时的期望值
+  )
+  
+  # 生成 Student-t 噪声
+  # R 语言里的 rt() 是标准 t 分布，必须乘以尺度参数 (sigma_obs) 并加上均值 (mu_gen)
+  y <- mu_gen + true_params$sigma_obs * rt(N, df = true_params$nu)
+  
+  # 将因变量强行截断在 [-50, 50] 之间，防止越界
+  y <- pmax(pmin(y, 50), -50)
+  
+  # ========================================================
+  # 4. 打包输出
+  # ========================================================
+  # 组装给 Stan 的输入数据
+  stan_data <- list(
+    N = N,
+    S = S,
+    subject = subject,
+    x = x,
+    y = y
+  )
+  
+  # 将真实的个体参数也存下来，方便做参数恢复的散点图核对
+  true_ind_params <- data.frame(
+    subject = 1:S,
+    int_neg = int_neg, 
+    int_pos = int_pos,
+    slo_neg = slo_neg, 
+    slo_pos = slo_pos
+  )
+  
+  # 返回结果
+  return(list(
+    stan_data  = stan_data,
+    true_hyper = true_params,
+    true_ind   = true_ind_params
+  ))
+}
+
+# --------------------------
+# 测试代码 (可以去掉注释运行看看)
+# --------------------------
+sim_output <- simulate_data_piecewise(S = 43, trials_per_subj = 57)
+# 
+# # 检查生成的数据结构
+str(sim_output$stan_data)
+#
+# # 画个图看看真实的自变量 x 和因变量 y 的分段关系
+plot(sim_output$stan_data$x, sim_output$stan_data$y,
+     pch = 16, col = rgb(0,0,0,0.1),
+     xlab = "x (PE)", ylab = "y (Alloc_var)", main = "Simulated Data")
+abline(v = 0, col = "red", lty = 2) # 画一条 x=0 的分割线
+
+```
+
+## Model-3
+```{r}
+
+simulate_data_model3 <- function(S = 43, trials_per_subj = 57, seed = 123) {
+  # 固定随机种子，保证每次生成结果一致
+  set.seed(seed)
+  
+  # ========================================================
+  # 1. 设定真实的群体水平参数 (Hyperparameters)
+  # ========================================================
+  true_params <- list(
+    # 截距群体均值 (因为 y 范围是 -50 到 50，截距设在 0 附近比较合理)
+    mu_int = 5.0,  
+    
+    # 斜率群体均值 (注意：Stan模型里经过了 exp() 转换，所以这里是对数尺度)
+    # 设定为 0.5，实际的群体平均斜率约为 exp(0.5) ≈ 1.65
+    mu_slo_neg = 0.5,  
+    mu_slo_pos = 0.2,  
+    
+    # 群体水平标准差
+    sigma_int = 5.0,
+    sigma_slo_neg = 0.2,
+    sigma_slo_pos = 0.2,
+    
+    # 观测噪声与 Student-t 自由度
+    sigma_obs = 8.0,
+    nu = 4.0   # 自由度 <lower=1>，设为 4 具有较厚尾部
+  )
+  
+  # ========================================================
+  # 2. 模拟个体参数 (对应 parameters 和 transformed parameters)
+  # ========================================================
+  # 生成非中心化扰动项 z (标准正态分布)
+  z_int <- rnorm(S, mean = 0, sd = 1)
+  z_slo_neg <- rnorm(S, mean = 0, sd = 1)
+  z_slo_pos <- rnorm(S, mean = 0, sd = 1)
+  
+  # 转换为实际的个体参数
+  # 截距是纯线性组合
+  inter <- true_params$mu_int + true_params$sigma_int * z_int
+  
+  # 斜率必须加上 exp() 转换，与 Stan 模型的 <lower=0> 和 exp(...) 绝对对齐
+  slo_neg <- exp(true_params$mu_slo_neg + true_params$sigma_slo_neg * z_slo_neg)
+  slo_pos <- exp(true_params$mu_slo_pos + true_params$sigma_slo_pos * z_slo_pos)
+  
+  # ========================================================
+  # 3. 模拟行为数据 (对应 model 和 generated quantities)
+  # ========================================================
+  N <- S * trials_per_subj
+  subject <- rep(1:S, each = trials_per_subj)
+  
+  # 生成自变量 x (标准化：均值0，标准差1)
+  x <- rnorm(N, mean = 0, sd = 1)
+  
+  # 【核心向量化】：使用 ifelse 完美替代 for 循环，区分 x 的正负侧
+  # 注意：两侧调用的都是统一的 inter[subject]
+  mu_gen <- ifelse(
+    x < 0, 
+    inter[subject] + slo_neg[subject] * x,  
+    inter[subject] + slo_pos[subject] * x   
+  )
+  
+  # 生成 Student-t 噪声并加到期望值上
+  # R中的 rt(N, df) 是标准 t 分布，必须乘以尺度参数 (sigma_obs) 并加上位置参数 (mu_gen)
+  y <- mu_gen + true_params$sigma_obs * rt(N, df = true_params$nu)
+  
+  # 根据数据块的注释，将 y 强行截断在 [-50, 50] 之间
+  y <- pmax(pmin(y, 50), -50)
+  
+  # ========================================================
+  # 4. 打包输出
+  # ========================================================
+  stan_data <- list(
+    N = N,
+    S = S,
+    subject = subject,
+    x = x,
+    y = y
+  )
+  
+  # 真实的个体参数表，留作后续画图对比
+  true_ind_params <- data.frame(
+    subject = 1:S,
+    inter = inter, 
+    slo_neg = slo_neg, 
+    slo_pos = slo_pos
+  )
+  
+  return(list(
+    stan_data  = stan_data,
+    true_hyper = true_params,
+    true_ind   = true_ind_params
+  ))
+}
+
+# --------------------------
+# 测试代码
+# --------------------------
+# sim_output <- simulate_data_single_int_exp(S = 43, trials_per_subj = 57)
+# 
+# # 快速查看一下生成的数据结构
+# str(sim_output$stan_data)
+# 
+# # 检查 y 的分布，确认截断是否成功
+# hist(sim_output$stan_data$y, breaks = 30, col = "lightgreen", 
+#      main = "Distribution of Simulated y (-50 to 50)", xlab = "y")
+
+```
+
+## Model-4
+```{r}
+
+simulate_data_model4 <- function(S = 43, trials_per_subj = 57, seed = 123) {
+  # 固定随机种子，保证每次生成的结果一致
+  set.seed(seed)
+  
+  # ========================================================
+  # 1. 设定真实的群体水平参数 (Hyperparameters)
+  # ========================================================
+  true_params <- list(
+    # 分段截距群体均值 (设定在 0-100 的合理范围内，比如 40 和 60)
+    mu_int_neg = 2.0,  
+    mu_int_pos = 5.0,  
+    
+    # 统一斜率群体均值 
+    # 注意：Stan 里你给了 lognormal(0, 1) 先验，所以它不仅本身要 > 0，而且还要被 exp() 转换。
+    # 设定为 0.5 时，实际群体平均斜率为 exp(0.5) ≈ 1.65
+    mu_slo = 0.5,  
+    
+    # 群体水平标准差
+    sigma_int_neg = 5.0,
+    sigma_int_pos = 5.0,
+    sigma_slo = 0.2,
+    
+    # 观测噪声与 Student-t 自由度
+    sigma_obs = 8.0,
+    nu = 4.0   # 自由度 <lower=1>，设为 4 具有较厚尾部
+  )
+  
+  # ========================================================
+  # 2. 模拟个体参数 (对应 parameters 和 transformed parameters)
+  # ========================================================
+  # 生成非中心化扰动项 z (标准正态分布)
+  z_int_neg <- rnorm(S, mean = 0, sd = 1)
+  z_int_pos <- rnorm(S, mean = 0, sd = 1)
+  z_slo     <- rnorm(S, mean = 0, sd = 1)
+  
+  # 转换为实际的个体参数
+  # 截距是纯线性组合
+  int_neg <- true_params$mu_int_neg + true_params$sigma_int_neg * z_int_neg
+  int_pos <- true_params$mu_int_pos + true_params$sigma_int_pos * z_int_pos
+  
+  # 统一斜率必须加上 exp() 转换
+  slo <- exp(true_params$mu_slo + true_params$sigma_slo * z_slo)
+  
+  # ========================================================
+  # 3. 模拟行为数据 (对应 model 和 generated quantities)
+  # ========================================================
+  N <- S * trials_per_subj
+  subject <- rep(1:S, each = trials_per_subj)
+  
+  # 生成自变量 x (标准化：均值0，标准差1)
+  x <- rnorm(N, mean = 0, sd = 1)
+  
+  # 【核心向量化】：使用 ifelse 区分 x 的正负侧
+  # 注意：两侧现在调用的是同一个斜率 slo[subject]
+  mu_gen <- ifelse(
+    x < 0, 
+    int_neg[subject] + slo[subject] * x,  
+    int_pos[subject] + slo[subject] * x   
+  )
+  
+  # 生成 Student-t 噪声并加到期望值上
+  y <- mu_gen + true_params$sigma_obs * rt(N, df = true_params$nu)
+  
+  # 根据数据块的注释，将 y 强行截断在 [0, 100] 之间
+  y <- pmax(pmin(y, 100), 0)
+  
+  # ========================================================
+  # 4. 打包输出
+  # ========================================================
+  stan_data <- list(
+    N = N,
+    S = S,
+    subject = subject,
+    x = x,
+    y = y
+  )
+  
+  # 真实的个体参数表，留作参数恢复对比图使用
+  true_ind_params <- data.frame(
+    subject = 1:S,
+    int_neg = int_neg, 
+    int_pos = int_pos,
+    slo     = slo
+  )
+  
+  return(list(
+    stan_data  = stan_data,
+    true_hyper = true_params,
+    true_ind   = true_ind_params
+  ))
+}
+
+# --------------------------
+# 测试与绘图检查代码
+# --------------------------
+# sim_output <- simulate_data_split_int_unified_slo(S = 43, trials_per_subj = 57)
+# 
+# # 快速画个图，看看分段截距和统一斜率的效果
+# plot(sim_output$stan_data$x, sim_output$stan_data$y, 
+#      pch = 16, col = rgb(0.2, 0.5, 0.8, 0.2),
+#      xlab = "x (PE)", ylab = "y (0-100)", 
+#      main = "Simulated Data: Split Intercepts + Unified Slope")
+# abline(v = 0, col = "red", lty = 2, lwd = 2) # X=0 分割线
+
+```
+
+## Model-9
+```{r}
+
+simulate_data_model9 <- function(S = 43, trials_per_subj = 57, seed = 123) {
+  # 固定随机种子
+  set.seed(seed)
+  
+  # ========================================================
+  # 1. 设定真实的群体水平参数 (Hyperparameters)
+  # ========================================================
+  true_params <- list(
+    # 统一斜率群体均值 (对数尺度)
+    # 设定为 0.5 时，实际的群体平均斜率约为 exp(0.5) ≈ 1.65
+    mu_slo = 0.5,  
+    
+    # 群体水平标准差
+    sigma_slo = 0.2,
+    
+    # 观测噪声与 Student-t 自由度
+    sigma_obs = 8.0,
+    nu = 4.0   # 自由度 <lower=1>
+  )
+  
+  # ========================================================
+  # 2. 模拟个体参数 (对应 parameters 和 transformed parameters)
+  # ========================================================
+  # 生成非中心化扰动项 z (标准正态分布)
+  z_slo <- rnorm(S, mean = 0, sd = 1)
+  
+  # 转换为实际的个体参数
+  # 【注意】：此模型去掉了截距变量，仅有加了 exp() 转换的个体斜率
+  slope <- exp(true_params$mu_slo + true_params$sigma_slo * z_slo)
+  
+  # ========================================================
+  # 3. 模拟行为数据 (对应 model 和 generated quantities)
+  # ========================================================
+  N <- S * trials_per_subj
+  subject <- rep(1:S, each = trials_per_subj)
+  
+  # 生成自变量 x (标准化：均值0，标准差1)
+  x <- rnorm(N, mean = 0, sd = 1)
+  
+  # 【核心向量化】：无截距、无分段，直接用个体斜率乘以 x
+  mu_gen <- slope[subject] * x
+  
+  # 生成 Student-t 噪声并加到期望值上
+  y <- mu_gen + true_params$sigma_obs * rt(N, df = true_params$nu)
+  
+  # （可选）由于你这次的代码中未写明 y 的具体上下限范围
+  # 如果实际物理意义上有边界，请取消下面代码的注释并修改数值：
+  # y <- pmax(pmin(y, 100), 0)   # 限制在 0-100
+  # y <- pmax(pmin(y, 50), -50)  # 限制在 -50-50
+  
+  # ========================================================
+  # 4. 打包输出
+  # ========================================================
+  stan_data <- list(
+    N = N,
+    S = S,
+    subject = subject,
+    x = x,
+    y = y
+  )
+  
+  # 真实的个体参数表
+  true_ind_params <- data.frame(
+    subject = 1:S,
+    slope   = slope
+  )
+  
+  return(list(
+    stan_data  = stan_data,
+    true_hyper = true_params,
+    true_ind   = true_ind_params
+  ))
+}
+
+# --------------------------
+# 测试代码
+# --------------------------
+# sim_output <- simulate_data_no_intercept(S = 43, trials_per_subj = 57)
+# 
+# # 快速画图检查：数据应该全部穿过原点 (0,0)，因为没有截距
+# plot(sim_output$stan_data$x, sim_output$stan_data$y, 
+#      pch = 16, col = rgb(0.2, 0.5, 0.8, 0.3),
+#      xlab = "x (PE)", ylab = "y", 
+#      main = "Simulated Data: No Intercept + Unified Slope")
+# abline(h = 0, v = 0, col = "red", lty = 2)
+
+```
+
+## Model-10
+```{r}
+
+simulate_data_model10 <- function(S = 43, trials_per_subj = 57, seed = 123) {
+  # 固定随机种子
+  set.seed(seed)
+  
+  # ========================================================
+  # 1. 设定真实的群体水平参数 (Hyperparameters)
+  # ========================================================
+  true_params <- list(
+    # 分段斜率群体均值 (对数尺度)
+    # 设定为 0.5 时，实际群体平均斜率约为 exp(0.5) ≈ 1.65
+    mu_slo_neg = 0.5,  
+    mu_slo_pos = 0.2,  
+    
+    # 群体水平标准差
+    sigma_slo_neg = 0.2,
+    sigma_slo_pos = 0.2,
+    
+    # 观测噪声与 Student-t 自由度
+    sigma_obs = 8.0,
+    nu = 4.0   # 自由度 <lower=1>
+  )
+  
+  # ========================================================
+  # 2. 模拟个体参数
+  # ========================================================
+  # 生成非中心化扰动项 z (标准正态分布)
+  z_slo_neg <- rnorm(S, mean = 0, sd = 1)
+  z_slo_pos <- rnorm(S, mean = 0, sd = 1)
+  
+  # 转换为实际的个体参数
+  # 【注】：你在上面提供的 Stan 代码中写的是 exp(mu * sigma * z)，通常非中心化参数是相加的。
+  # 为了确保参数恢复的数学逻辑正确，这里 R 脚本采用标准的加法逻辑：exp(mu + sigma * z)
+  slo_neg <- exp(true_params$mu_slo_neg + true_params$sigma_slo_neg * z_slo_neg)
+  slo_pos <- exp(true_params$mu_slo_pos + true_params$sigma_slo_pos * z_slo_pos)
+  
+  # ========================================================
+  # 3. 模拟行为数据
+  # ========================================================
+  N <- S * trials_per_subj
+  subject <- rep(1:S, each = trials_per_subj)
+  
+  # 生成自变量 x (标准化：均值0，标准差1)
+  x <- rnorm(N, mean = 0, sd = 1)
+  
+  # 【核心向量化】：无截距，分段斜率
+  mu_gen <- ifelse(
+    x < 0, 
+    slo_neg[subject] * x,  
+    slo_pos[subject] * x   
+  )
+  
+  # 生成 Student-t 噪声并加到期望值上
+  y <- mu_gen + true_params$sigma_obs * rt(N, df = true_params$nu)
+  
+  # 根据模型注释，将 y 强行截断在 [0, 100] 之间
+  y <- pmax(pmin(y, 100), 0)
+  
+  # ========================================================
+  # 4. 打包输出
+  # ========================================================
+  stan_data <- list(
+    N = N,
+    S = S,
+    subject = subject,
+    x = x,
+    y = y
+  )
+  
+  # 真实的个体参数表
+  true_ind_params <- data.frame(
+    subject = 1:S,
+    slo_neg = slo_neg,
+    slo_pos = slo_pos
+  )
+  
+  return(list(
+    stan_data  = stan_data,
+    true_hyper = true_params,
+    true_ind   = true_ind_params
+  ))
+}
+
+```
+
+## Model-17
+```{r}
+
+library(dplyr)
+
+simulate_data_17 <- function(S = 43, trials_per_subj = 57, seed = 123) {
+  # 固定随机种子
+  set.seed(seed)
+  
+  # ========================================================
+  # 1. 设定真实的群体水平参数 (Hyperparameters)
+  # ========================================================
+  true_params <- list(
+    # 统一截距群体均值
+    mu_int = 10.0,  
+    
+    # 分段斜率群体均值 (对数尺度)
+    # 设定为 0.5 时，实际群体平均斜率约为 exp(0.5) ≈ 1.65
+    mu_slo_neg = 0.5,  
+    mu_slo_pos = 0.2,  
+    
+    # 群体水平标准差
+    sigma_int = 3.0,
+    sigma_slo_neg = 0.2,
+    sigma_slo_pos = 0.2,
+    
+    # 观测噪声与 Student-t 自由度
+    sigma_obs = 8.0,
+    nu = 4.0   # 自由度 <lower=1>
+  )
+  
+  # ========================================================
+  # 2. 模拟个体参数 
+  # ========================================================
+  # 生成非中心化扰动项 z (标准正态分布)
+  z_int <- rnorm(S, mean = 0, sd = 1)
+  z_slo_neg <- rnorm(S, mean = 0, sd = 1)
+  z_slo_pos <- rnorm(S, mean = 0, sd = 1)
+  
+  # 转换为实际的个体参数
+  inter <- true_params$mu_int + true_params$sigma_int * z_int
+  slo_neg <- exp(true_params$mu_slo_neg + true_params$sigma_slo_neg * z_slo_neg)
+  slo_pos <- exp(true_params$mu_slo_pos + true_params$sigma_slo_pos * z_slo_pos)
+  
+  # ========================================================
+  # 3. 模拟行为数据 
+  # ========================================================
+  N <- S * trials_per_subj
+  subject <- rep(1:S, each = trials_per_subj)
+  
+  # 生成自变量 x (标准化：均值0，标准差1)
+  x <- rnorm(N, mean = 0, sd = 1)
+  
+  # 【核心向量化】：严格对齐你模型中的特殊加减法逻辑
+  # x < 0 时：斜率 * x - 截距
+  # x >= 0 时：斜率 * x + 截距
+  mu_gen <- ifelse(
+    x < 0, 
+    slo_neg[subject] * x - inter[subject],  
+    slo_pos[subject] * x + inter[subject]   
+  )
+  
+  # 生成 Student-t 噪声并加到期望值上
+  y <- mu_gen + true_params$sigma_obs * rt(N, df = true_params$nu)
+  
+  # 将因变量强行截断在 [-50, 50] 之间
+  y <- pmax(pmin(y, 50), -50)
+  
+  # ========================================================
+  # 4. 打包输出
+  # ========================================================
+  stan_data <- list(
+    N = N,
+    S = S,
+    subject = subject,
+    x = x,
+    y = y
+  )
+  
+  # 真实的个体参数表
+  true_ind_params <- data.frame(
+    subject = 1:S,
+    inter = inter,
+    slo_neg = slo_neg,
+    slo_pos = slo_pos
+  )
+  
+  return(list(
+    stan_data  = stan_data,
+    true_hyper = true_params,
+    true_ind   = true_ind_params
+  ))
+}
+
+```
+
+## Model-20
+```{r}
+
+
+simulate_data_model20 <- function(S = 43, trials_per_subj = 57, seed = 123) {
+  # 固定随机种子
+  set.seed(seed)
+  
+  # ========================================================
+  # 1. 设定真实的群体水平参数 (Hyperparameters)
+  # ========================================================
+  true_params <- list(
+    # 统一截距群体均值 (控制原点处的跳跃幅度)
+    mu_int = 10.0,  
+    
+    # 统一斜率群体均值 (纯线性，无 exp 转换)
+    mu_slo = 2.0,  
+    
+    # 群体水平标准差
+    sigma_int = 3.0,
+    sigma_slo = 0.5,
+    
+    # 观测噪声与 Student-t 自由度
+    sigma_obs = 8.0,
+    nu = 4.0   # 自由度 <lower=1>
+  )
+  
+  # ========================================================
+  # 2. 模拟个体参数 
+  # ========================================================
+  # 生成非中心化扰动项 z (标准正态分布)
+  z_int <- rnorm(S, mean = 0, sd = 1)
+  z_slo <- rnorm(S, mean = 0, sd = 1)
+  
+  # 转换为实际的个体参数 (纯线性组合，与 transformed parameters 一致)
+  inter <- true_params$mu_int + true_params$sigma_int * z_int
+  slo   <- true_params$mu_slo + true_params$sigma_slo * z_slo
+  
+  # ========================================================
+  # 3. 模拟行为数据 
+  # ========================================================
+  N <- S * trials_per_subj
+  subject <- rep(1:S, each = trials_per_subj)
+  
+  # 生成自变量 x (标准化：均值0，标准差1)
+  x <- rnorm(N, mean = 0, sd = 1)
+  
+  # 【核心向量化】：严格对齐你模型中的特殊加减法逻辑
+  # x < 0 时：斜率 * x - 截距
+  # x >= 0 时：斜率 * x + 截距
+  mu_gen <- ifelse(
+    x < 0, 
+    slo[subject] * x - inter[subject],  
+    slo[subject] * x + inter[subject]   
+  )
+  
+  # 生成 Student-t 噪声并加到期望值上
+  y <- mu_gen + true_params$sigma_obs * rt(N, df = true_params$nu)
+  
+  # 将因变量强行截断在 [-50, 50] 之间
+  y <- pmax(pmin(y, 50), -50)
+  
+  # ========================================================
+  # 4. 打包输出
+  # ========================================================
+  stan_data <- list(
+    N = N,
+    S = S,
+    subject = subject,
+    x = x,
+    y = y
+  )
+  
+  # 真实的个体参数表
+  true_ind_params <- data.frame(
+    subject = 1:S,
+    inter = inter,
+    slo   = slo
+  )
+  
+  return(list(
+    stan_data  = stan_data,
+    true_hyper = true_params,
+    true_ind   = true_ind_params
+  ))
+}
+
+# --------------------------
+# 测试与绘图检查代码
+# --------------------------
+# sim_output <- simulate_data_unified_params_shifted(S = 43, trials_per_subj = 57)
+# 
+# # 快速画图检查：你可以在图上明显看到在 x=0 处，y 发生了一个等于 2*inter 的上下跳跃断层
+# plot(sim_output$stan_data$x, sim_output$stan_data$y, 
+#      pch = 16, col = rgb(0.2, 0.5, 0.8, 0.3),
+#      xlab = "x (PE)", ylab = "y (-50 to 50)", 
+#      main = "Simulated Data: Unified Params + Shifted Intercept")
+# abline(v = 0, col = "red", lty = 2)
+
+
+```
+
+
+# Extract param
+```{r}
+
+# 1. 定义你要读取的 .Rdata 文件列表
+# 结合你最初的代码，假设文件命名规则如下：
+modelID_begin <- 2
+modelID_end <- 2  # 假设你需要提取编号0到12的模型
+rdata_files <- paste0(result_dir, "model_ascertain_EXP3_", modelID_begin:modelID_end, "_output_260410.Rdata")
+# 如果文件在特定文件夹中，请加上路径，例如：
+# rdata_files <- file.path("results", rdata_files)
+
+# 2. 创建一个空列表，用于暂存每次循环提取出的数据框
+all_results_list <- list()
+
+for (i in seq_along(rdata_files)) {
+  current_file <- rdata_files[i]
+  
+  if (!file.exists(current_file)) next
+  message(sprintf("正在提取文件: %s ...", current_file))
+  
+  load(current_file) 
+  
+  if (exists("model_output") && inherits(model_output, "stanfit")) {
+    
+    # 核心改动 1：提取模型中的【所有】参数的 summary
+    full_summary <- summary(model_output)$summary
+    
+    subj_df <- as.data.frame(full_summary) %>%
+      rownames_to_column(var = "param_raw") %>%
+      
+      # 核心改动 2：利用正则表达式进行智能过滤
+      # 保留包含方括号和数字的行 (如 inter[1], slo_neg[2])
+      filter(str_detect(param_raw, "\\[\\d+\\]")) %>% 
+      
+      # 剔除不需要的数组变量：后验预测 y_rep、对数似然 log_lik、以及个体扰动项 z_
+      filter(!str_detect(param_raw, "^(y_rep|log_lik|z_)")) %>% 
+      
+      mutate(
+        source_model = current_file,
+        # 提取参数名：匹配方括号前面的所有字母和下划线 (完美支持 slo_neg 这种命名)
+        param_type = str_extract(param_raw, "^[a-zA-Z_]+"), 
+        # 提取被试ID：提取字符串里的数字
+        subject_id = as.integer(str_extract(param_raw, "\\d+")) 
+      ) %>%
+      dplyr::select(source_model, subject_id, param_type, param_raw, 
+             mean, sd, `2.5%`, `50%`, `97.5%`, n_eff, Rhat)
+    
+    all_results_list[[i]] <- subj_df
+    rm(model_output)
+    
+  } else {
+    warning(sprintf("文件 %s 无效。", current_file))
+  }
+}
+
+# 合并并导出
+final_results_df <- bind_rows(all_results_list)
+write_csv(final_results_df, file = "param_model2_EXP3_260410.csv")
+
+message("🎉 提取全部完成！结果已保存至: ", output_csv_name)
+
+
+```
+
+```{r}
+
+modelID_begin <- 2
+modelID_end <- 2  # 假设你需要提取编号0到12的模型
+rdata_files <- paste0(result_dir, "model_ascertain_EXP3_", modelID_begin:modelID_end, "_output_260410.Rdata")
+
+for (i in seq_along(rdata_files)) {
+  current_file <- rdata_files[i]
+  
+  if (!file.exists(current_file)) next
+  message(sprintf("正在提取文件: %s ...", current_file))
+  
+  load(current_file) 
+  # 1. 提取原始（对数）尺度下的群体参数
+  
+  # 第一步：把模型结果转为纯数据框，规避一切格式报错
+  samples_df <- as.data.frame(model_output)
+
+  # 确保你已经把模型结果转为了数据框（如果没有，请取消下面这行的注释）
+  # samples_df <- as.data.frame(model_output)
+  
+  # ==========================================
+  # 1. 自动抓取四个指标下，所有个体的列名
+  # ==========================================
+  # 注意：你的模型中个体参数叫 int_neg, int_pos, slo_neg, slo_pos
+  cols_int_neg <- grep("^int_neg\\[", colnames(samples_df), value = TRUE)
+  cols_int_pos <- grep("^int_pos\\[", colnames(samples_df), value = TRUE)
+  cols_slo_neg <- grep("^slo_neg\\[", colnames(samples_df), value = TRUE)
+  cols_slo_pos <- grep("^slo_pos\\[", colnames(samples_df), value = TRUE)
+  
+  # ==========================================
+  # 2. 计算“个体算术平均值”的后验分布
+  # ==========================================
+  # rowMeans 会在每一次抽样（每一行）中，算出所有被试的平均值
+  dist_mean_int_neg <- rowMeans(samples_df[, cols_int_neg])
+  dist_mean_int_pos <- rowMeans(samples_df[, cols_int_pos])
+  dist_mean_slo_neg <- rowMeans(samples_df[, cols_slo_neg])
+  dist_mean_slo_pos <- rowMeans(samples_df[, cols_slo_pos])
+  
+  # ==========================================
+  # 3. 定义汇总函数（算均值和 95% HDI）
+  # ==========================================
+  get_empirical_summary <- function(dist_data, param_name) {
+    # 算分布的均值
+    val_mean <- mean(dist_data)
+    # 算分布的 95% HDI
+    val_hdi <- hdi(dist_data, credMass = 0.95)
+    
+    # 拼成一行
+    data.frame(
+      Parameter = param_name,
+      Arithmetic_Mean = round(val_mean, 3), # 这个就是你看到的 3.几
+      HDI_2.5 = round(val_hdi[1], 3),
+      HDI_97.5 = round(val_hdi[2], 3)
+    )
+  }
+  
+  # ==========================================
+  # 4. 生成最终报告表格
+  # ==========================================
+  final_empirical_table <- rbind(
+    get_empirical_summary(dist_mean_int_neg, "实际个体算术平均_截距 (x < 0)"),
+    get_empirical_summary(dist_mean_int_pos, "实际个体算术平均_截距 (x >= 0)"),
+    get_empirical_summary(dist_mean_slo_neg, "实际个体算术平均_物理斜率 (x < 0)"),
+    get_empirical_summary(dist_mean_slo_pos, "实际个体算术平均_物理斜率 (x >= 0)")
+  )
+  
+  # 打印最终表格，去掉行名让它更干净
+  rownames(final_empirical_table) <- NULL
+  print(final_empirical_table)
+}
+
+
+```
+
+# BMA-BB
+```{r}
+
+# 获取所有 .Rdata 文件的完整路径
+file_paths <- list.files(path = result_dir, pattern = "model_ascertain_EXP3_[0-9]+_output_260318\\.Rdata$", full.names = TRUE)
+
+# 3. 创建一个空列表来存放每个模型的 loo 对象
+loo_list <- list()
+
+# 4. 循环处理每个模型
+# 使用 seq_along 确保我们可以通过索引重命名
+for (i in seq_along(file_paths)) {
+  
+  # a. 创建临时环境以防变量名冲突
+  temp_env <- new.env()
+  
+  # b. 加载当前文件
+  cat("正在处理第", i, "个模型:", basename(file_paths[i]), "\n")
+  load(file_paths[i], envir = temp_env)
+  
+  # c. 提取模型对象 (假设对象在里面都叫 model_output)
+  fit_obj <- temp_env$model_output
+  
+  # d. 计算 PSIS-LOO (核心指标)
+  # cores = 4 可以根据你的电脑 CPU 核数调整，加快速度
+  # save_psis = TRUE 有助于后续可能的诊断
+  current_loo <- loo(fit_obj, cores = 4)
+  
+  # e. 将计算好的 loo 结果存入列表，并以文件名命名
+  model_name <- gsub("\\.Rdata$", "", basename(file_paths[i]))
+  loo_list[[model_name]] <- current_loo
+  
+  # f. 关键步骤：显式清理内存，防止加载 12 个模型后内存溢出
+  rm(fit_obj, temp_env)
+  gc() # 强制进行垃圾回收
+}
+
+# 5. 计算 BMA-BB 权重 (Bayesian Model Averaging via Bayesian Bootstrap)
+# method = "pseudobma" 结合 BB = TRUE 即为你论文中要求的算法
+set.seed(123) # 因为 Bayesian Bootstrap 涉及随机采样，设置随机种子保证结果可重复
+model_weights <- loo_model_weights(
+  loo_list, 
+  method = "pseudobma", 
+  BB = TRUE, 
+  iterations = 1000  # BB 的采样次数，默认 1000 通常足够
+)
+
+# 6. 查看并导出结果
+print(model_weights)
+
+# 转换为易读的数据框并保存
+weight_df <- as.data.frame(as.matrix(model_weights))
+colnames(weight_df) <- "Weight"
+weight_df$Model <- rownames(weight_df)
+# 按权重从高到低排序
+weight_df <- weight_df[order(-weight_df$Weight), ]
+
+print(weight_df)
+write.csv(weight_df, "BMA_BB_Weights_Results_EXP3_260329.csv", row.names = FALSE)
+
+
+```

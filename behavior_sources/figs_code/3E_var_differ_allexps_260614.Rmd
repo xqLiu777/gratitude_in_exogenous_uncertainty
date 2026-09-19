@@ -1,0 +1,450 @@
+---
+title: "Untitled"
+output: html_document
+date: "2025-12-15"
+---
+
+```{r library}
+
+library(readxl)
+library(dplyr)
+library(gghalves)
+library(broom)
+library(tidyr)
+library(gtable)
+library(grid)
+library(effectsize)
+library(ggplot2)
+library(patchwork)
+library(ggdist)
+
+source("plot_theme.R")
+source("save_pub.R")
+
+```
+# directory
+```{r}
+
+data_dir <- paste0(file.path("..", "figs_data"), .Platform$file.sep)
+data_path <- paste0(data_dir, 'allexps_ascertain_data_260403.xlsx')
+data_file <- paste0(data_path)
+```
+
+# Parameter
+```{r}
+
+p_to_stars <- function(p) {
+  case_when(
+    is.na(p) ~ "NA",
+    p < 0.001 ~ "***",
+    p < 0.01  ~ "**",
+    p < 0.05  ~ "*",
+    TRUE ~ "ns"
+  )
+}
+
+# ---------- colors ----------
+low_fill <- "#9DC3E6"
+high_fill <- "#F3B082"
+
+low_line <- "#4F81BD"
+high_line <- "#D97742"
+
+violin_alpha <- 0.3
+
+# ---------- half-eye / raincloud ----------
+violin_width <- 0.7
+violin_linewidth <- 2
+violin_alpha <- 0.2
+
+density_adjust <- 1
+density_trim <- FALSE
+scale <- 0.45
+
+# ---------- mean and errorbar ----------
+mean_errorbar_linewidth <- 3
+mean_errorbar_width <- 0.15
+
+mean_point_size <- 10
+mean_marker_shape <- 23
+mean_marker_stroke <- 2
+
+# ---------- position ----------
+point_x_offset <- 0.08
+
+# ---------- axis ----------
+geomline_linewidth <- 1
+axis_linewidth <- 1.2
+axis_tick_linewidth <- 1.2
+
+# ---------- significance ----------
+sig_label_size <- 30
+
+# ---------- plot margin ----------
+plot_margin_top <- 10
+plot_margin_right <- 20
+plot_margin_bottom <- 10
+plot_margin_left <- 20
+
+# ---------- left axis: Gratitude ----------
+left_y_min <- 0
+left_y_max <- 75
+left_y_breaks <- seq(0, 65, 20)
+
+# ---------- right axis: Allocation ----------
+right_y_min <- 0
+right_y_max <- 8.5
+right_y_breaks <- seq(0, 8, 2)
+
+right_to_left <- function(x) {
+  x / right_y_max * left_y_max
+}
+
+left_to_right <- function(x) {
+  x / left_y_max * right_y_max
+}
+
+# ---------- significance label position ----------
+sig_y_grati <- 70
+sig_y_alloc <- left_to_right(sig_y_grati)
+
+# ---------- convert p value to stars ----------
+p_to_stars <- function(p) {
+  case_when(
+    is.na(p) ~ "NA",
+    p < 0.001 ~ "***",
+    p < 0.01  ~ "**",
+    p < 0.05  ~ "*",
+    TRUE ~ "ns"
+  )
+}
+
+
+
+# ============================================================
+# 5. Group settings
+# ============================================================
+
+# 横向从左到右的实验顺序
+group_levels <- c(
+  "EXP2-Grati-Bene",
+  "EXP3-Grati-Bene",
+  "EXP3-Grati-Cost",
+  "EXP4-Alloc-Cost"
+)
+
+# x 轴显示标签
+# group_labels <- c(
+#   "EXP2-Grati-Bene" = "Exp2-\nBenefit",
+#   "EXP3-Grati-Bene" = "Exp3-\nBenefit",
+#   "EXP3-Grati-Cost" = "Exp3-\nCost",
+#   "EXP4-Alloc-Cost" = "Exp4-\nCost",
+#   "EXP7-Alloc-Cost" = "Exp7-\nCost"
+# )
+
+group_labels <- c(
+  "EXP2-Grati-Bene" = "Exp2-",
+  "EXP3-Grati-Bene" = "Exp3-",
+  "EXP3-Grati-Cost" = "Exp3-",
+  "EXP4-Alloc-Cost" = "Exp4-"
+)
+
+# 左轴对应的三个 Gratitude 实验
+grati_groups <- c(
+  "EXP2-Grati-Bene",
+  "EXP3-Grati-Bene",
+  "EXP3-Grati-Cost"
+)
+
+# 右轴对应的两个 Allocation 实验
+alloc_groups <- c(
+  "EXP4-Alloc-Cost"
+)
+
+
+
+```
+
+```{r}
+
+exp_data <- read_excel(data_file, sheet = 'alldata')
+exp_data <- exp_data[exp_data$Situation == 'Uncertain', ]
+exp_data$Outcome <- factor(exp_data$Outcome, levels = c("Outcome-2", "Outcome-8"))
+
+```
+
+
+```{r}
+# ============================================================
+# 6. Prepare plotting data
+# ============================================================
+
+plot_data <- exp_data %>%
+  mutate(
+    EXP_name = trimws(as.character(EXP_name)),
+
+    # 设置实验顺序
+    Group = factor(EXP_name, levels = group_levels),
+    Group_num = as.numeric(Group),
+
+    # 设置 Outcome 标签
+    Outcome = factor(
+      Outcome,
+      levels = c("Outcome-2", "Outcome-8"),
+      labels = c("Outcome2", "Outcome8")
+    ),
+
+    # 区分左轴和右轴
+    Domain = case_when(
+      EXP_name %in% grati_groups ~ "Gratitude",
+      EXP_name %in% alloc_groups ~ "Allocation",
+      TRUE ~ NA_character_
+    ),
+
+    # 关键：把 Allocation 映射到左轴尺度
+    value_plot = case_when(
+      Domain == "Gratitude"  ~ var_abs,
+      Domain == "Allocation" ~ right_to_left(var_abs)
+    ),
+
+    # 每个实验内部左右分布
+    # Outcome2 在左，Outcome8 在右
+    x_pos = case_when(
+      Outcome == "Outcome2" ~ Group_num - point_x_offset,
+      Outcome == "Outcome8" ~ Group_num + point_x_offset
+    )
+  ) %>%
+  filter(
+    !is.na(Group),
+    !is.na(Outcome),
+    !is.na(var_abs),
+    !is.na(Domain)
+  )
+
+
+# ============================================================
+# 7. Summary data: mean and SE
+# ============================================================
+
+summary_long <- plot_data %>%
+  group_by(Group, Group_num, Outcome, x_pos, Domain) %>%
+  summarise(
+    mean_raw = mean(var_abs, na.rm = TRUE),
+    se_raw = sd(var_abs, na.rm = TRUE) / sqrt(sum(!is.na(var_abs))),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    # mean 映射到绘图尺度
+    mean_plot = case_when(
+      Domain == "Gratitude"  ~ mean_raw,
+      Domain == "Allocation" ~ right_to_left(mean_raw)
+    ),
+
+    # errorbar 映射到绘图尺度
+    ymin = case_when(
+      Domain == "Gratitude"  ~ mean_raw - se_raw,
+      Domain == "Allocation" ~ right_to_left(mean_raw - se_raw)
+    ),
+    ymax = case_when(
+      Domain == "Gratitude"  ~ mean_raw + se_raw,
+      Domain == "Allocation" ~ right_to_left(mean_raw + se_raw)
+    )
+  )
+
+
+# ============================================================
+# 8. Paired t-test for each experiment
+# ============================================================
+
+sig_df <- plot_data %>%
+  select(SubID, Group, Group_num, Outcome, var_abs, Domain) %>%
+  pivot_wider(
+    names_from = Outcome,
+    values_from = var_abs
+  ) %>%
+  group_by(Group, Group_num, Domain) %>%
+  summarise(
+    p_value = t.test(
+      Outcome2,
+      Outcome8,
+      paired = TRUE
+    )$p.value,
+    .groups = "drop"
+  ) %>%
+  mutate(
+    sig = p_to_stars(p_value),
+
+    # 显著性标注位置
+    y_sig = case_when(
+      Domain == "Gratitude"  ~ sig_y_grati,
+      Domain == "Allocation" ~ right_to_left(sig_y_alloc)
+    )
+  )
+
+
+```
+
+# fig
+```{r, fig.width = width_in_inches, fig.height = height_in_inches}
+
+output_path <- ".\\02_fig\\02_allexps_var_ttest_260613.svg"
+
+p <- ggplot() +
+
+  # ---------- separator between Gratitude and Allocation ----------
+  geom_vline(
+    xintercept = 3.5,
+    linetype = "dashed",
+    linewidth = geomline_linewidth,
+    color = "grey50"
+  ) +
+
+  # ---------- Outcome2: left half-eye ----------
+  stat_halfeye(
+    data = plot_data %>% filter(Outcome == "Outcome2"),
+    aes(
+      x = x_pos,
+      y = value_plot
+    ),
+    fill = scales::alpha(low_fill, violin_alpha),
+    slab_color = low_line,
+    slab_linewidth = violin_linewidth,
+    orientation = "vertical",
+    side = "left",
+    adjust = density_adjust,
+    trim = density_trim,
+    width = violin_width,
+    scale = scale,
+    .width = 0,
+    point_interval = NULL
+  ) +
+  
+  stat_halfeye(
+    data = plot_data %>% filter(Outcome == "Outcome8"),
+    aes(
+      x = x_pos,
+      y = value_plot
+    ),
+    fill = scales::alpha(high_fill, violin_alpha),
+    slab_color = high_line,
+    slab_linewidth = violin_linewidth,
+    orientation = "vertical",
+    side = "right",
+    adjust = density_adjust,
+    trim = density_trim,
+    width = violin_width,
+    scale = scale,
+    .width = 0,
+    point_interval = NULL
+  ) +
+
+  # ---------- mean ± SE ----------
+  geom_errorbar(
+    data = summary_long,
+    aes(
+      x = x_pos,
+      ymin = ymin,
+      ymax = ymax,
+      color = Outcome
+    ),
+    width = mean_errorbar_width,
+    linewidth = mean_errorbar_linewidth
+  ) +
+
+  # ---------- mean point ----------
+  geom_point(
+    data = summary_long,
+    aes(
+      x = x_pos,
+      y = mean_plot,
+      fill = Outcome
+    ),
+    shape = mean_marker_shape,
+    size = mean_point_size,
+    color = "black",
+    stroke = mean_marker_stroke
+  ) +
+
+  # ---------- significance stars ----------
+  geom_text(
+    data = sig_df,
+    aes(
+      x = Group_num,
+      y = y_sig,
+      label = sig
+    ),
+    size = sig_label_size,
+    color = "black"
+    # fontface = "bold"
+  ) +
+
+  # ---------- fill colors ----------
+  scale_fill_manual(
+    values = c(
+      "Outcome2" = low_fill,
+      "Outcome8" = high_fill
+    ),
+    labels = c(
+      "Outcome2" = "Outcome-2",
+      "Outcome8" = "Outcome-8"
+    ),
+    drop = FALSE
+  ) +
+
+  # ---------- line colors ----------
+  scale_color_manual(
+    values = c(
+      "Outcome2" = low_line,
+      "Outcome8" = high_line
+    ),
+    labels = c(
+      "Outcome2" = "Outcome-2",
+      "Outcome8" = "Outcome-8"
+    ),
+    drop = FALSE
+  ) +
+
+  # ---------- x axis ----------
+  scale_x_continuous(
+    breaks = 1:4,
+    labels = group_labels[group_levels],
+    limits = c(0.2, 4.8),
+    expand = expansion(mult = c(0.0, 0.0))
+  ) +
+
+  # ---------- y axis with secondary axis ----------
+  scale_y_continuous(
+    name = "|ΔGratitude|",
+    limits = c(left_y_min, left_y_max),
+    breaks = left_y_breaks,
+    expand = expansion(mult = c(0.0, 0.0)),
+    sec.axis = sec_axis(
+      trans = ~ left_to_right(.),
+      name = "|ΔAllocation|",
+      breaks = right_y_breaks
+    )
+  ) +
+
+  # ---------- labels ----------
+  labs(
+    x = "Exp",
+    fill = NULL,
+    color = NULL
+  ) +
+
+  coord_cartesian(clip = "off") +
+  
+  theme_pub() +
+  theme(
+  axis.title.y.right = element_text(
+    margin = margin(l = title_margin)
+  ),
+  axis.text.y.right = element_text(margin = margin(l = text_margin)))
+
+save_pub(p, output_path)
+
+rm(p, summary_data)
+gc()
+
+
+```

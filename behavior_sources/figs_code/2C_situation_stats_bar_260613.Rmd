@@ -1,0 +1,901 @@
+# library
+```{r library}
+
+library(readxl)
+library(bruceR)
+library(patchwork)
+library(gridExtra)
+library(ggnewscale)
+
+
+source("plot_theme.R")
+source("save_pub.R")
+
+```
+
+# parameter
+```{r parameter}
+
+
+# ============================================================
+# 4. Bar parameters
+# ============================================================
+
+bar_width <- 0.60
+
+# Distance between the two dodged bars within each Situation.
+bar_interval <- 0.70
+
+# Bar outline thickness.
+border_size <- 4
+
+bar_position <- position_dodge(width = bar_interval)
+
+
+# ============================================================
+# 5. Paired subject line parameters
+# ============================================================
+
+paired_line_color <- "#A0A0A0"
+paired_line_linetype <- "longdash"
+paired_linewidth <- 1.50
+
+paired_point_color <- "#A0A0A0"
+paired_point_size <- 3
+
+# ============================================================
+# Individual point parameters
+# ============================================================
+
+point_shape <- 21
+point_size <- 15
+point_alpha <- 0.30
+point_stroke <- 4
+point_color <- NA
+
+# ============================================================
+# 6. Error-bar parameters
+# ============================================================
+
+errorbar_width <- 0.20
+errorbar_linewidth <- 2.50
+
+
+# ============================================================
+# 7. Significance annotation parameters
+# ============================================================
+
+# Vertical distance between Outcome-8 mean and significance line.
+sig_y_offset <- 6
+
+# Vertical distance between significance line and text.
+sig_text_margin <- 0.20
+
+sig_label_uncertain <- "***"
+sig_label_certain <- "***"
+
+sig_text_color <- "black"
+sig_size <- 30
+
+sig_segment_color <- "black"
+sig_seg_size <- 1
+
+# Significance line positions above the two bars within each Situation.
+sig_uncertain_x_start <- 0.825
+sig_uncertain_x_end <- 1.175
+sig_uncertain_x_center <- 1.000
+
+sig_certain_x_start <- 1.825
+sig_certain_x_end <- 2.175
+sig_certain_x_center <- 2.000
+
+
+# ============================================================
+# 8. Color palettes
+# ============================================================
+
+bar_fill_alpha <- 0.20
+point_fill_alpha <- 0.30
+
+outcome_color_palette <- c(
+  "Outcome-2" = "#4F81BD",
+  "Outcome-8" = "#D97742"
+)
+
+bar_fill_palette <- c(
+  "empty" = NA,
+  "Outcome-2" = scales::alpha("#9DC3E6", bar_fill_alpha),
+  "Outcome-8" = scales::alpha("#F3B082", bar_fill_alpha)
+)
+
+bar_color_palette <- c(
+  "Outcome-2" = "#4F81BD",
+  "Outcome-8" = "#D97742"
+)
+
+point_fill_palette <- c(
+  "Outcome-2" = scales::alpha("#4F81BD", point_fill_alpha),
+  "Outcome-8" = scales::alpha("#D97742", point_fill_alpha)
+)
+
+
+# Let bars touch the x-axis.
+y_expand_lower <- 0
+
+# Keep a little top space for significance labels.
+y_expand_upper <- 0.03
+
+# 
+# 
+# x_start <- 0.4
+# bar_width <- 0.7
+# 
+# bar_interval <- 0.7
+# 
+# legend_size <- 50
+# 
+# sig_size <- 20
+# sig_ns_size <- 40
+# sig_seg_size <- 2
+# 
+# border_size <- 8
+
+```
+
+# EXP1
+```{r data directory}
+
+data_dir <- file.path("..", "figs_data", "EXP1_CGB_data_260312.xlsx")
+```
+
+
+## Gratitude
+```{r EXP3_PMPD Gratitude}
+# 读取 Excel 文件
+data <- read_excel(data_dir, sheet = '02_condi_long')
+exp_data <- data[data$Outcome != "Outcome-5", ]
+exp_data <- exp_data[exp_data$Situation != "Ambiguous", ]
+
+### one-factor ANOVA
+print('【Exp1】')
+
+# 使用tapply计算平均值和标准差 
+means <- tapply(exp_data$Rating, list(exp_data$Outcome, exp_data$Situation), mean)
+std_devs <- tapply(exp_data$Rating, list(exp_data$Outcome, exp_data$Situation), sd)
+cat("Means:", means, '\n')
+cat("Standard Deviations:", std_devs, '\n')
+# 
+# 执行单因素方差分析
+MANOVA(exp_data, dv = "Rating", subID = "SubID", within = c("Outcome","Situation"), sph.correction = 'GG') %>%
+  EMMEANS(effect = c("Outcome")) %>%
+  EMMEANS(effect = c("Situation")) %>%
+  EMMEANS("Outcome", by = "Situation") %>%
+  EMMEANS("Situation", by = "Outcome") 
+
+```
+
+
+### fig
+```{r, echo=TRUE}
+output_path <- ".\\02_fig\\03_exp1_grati_situation_avova_260613.svg"
+
+# ============================================================
+# 3. Axis labels and y-axis
+# ============================================================
+
+x_title <- "Situation"
+y_title <- "Gratitude-Cost"
+
+y_min <- 0
+y_max <- 115
+y_break_min <- 0
+y_break_max <- 100
+y_break_by <- 20
+
+
+sig1_y <- 99
+sig2_y <- 99
+sig3_y <- 105
+sig_seg_margin <- 1.5
+
+# ============================================================
+# 2. Data columns and factor settings
+# ============================================================
+
+sub_col <- "SubID"
+dv_col <- "Rating"
+
+situation_levels <- c("Uncertain", "Certain")
+outcome_levels <- c("Outcome-2", "Outcome-8")
+
+# situation_labels <- c(
+#   "Uncertain" = "Uncertain-\nto-Certain",
+#   "Certain" = "Constantly-\nCertain"
+# )
+situation_labels <- c(
+  "Uncertain" = "Uncertain",
+  "Certain" = "Certain"
+)
+outcome_labels <- c(
+  "Outcome-2" = "O2",
+  "Outcome-8" = "O8"
+)
+
+exp_data <- exp_data %>%
+  mutate(
+    Situation = factor(Situation, levels = situation_levels),
+    Outcome = factor(Outcome, levels = outcome_levels)
+  )
+
+summary_data <- exp_data %>%
+  group_by(Situation, Outcome) %>%
+  summarize(
+    mean_value = mean(.data[[dv_col]], na.rm = TRUE),
+    se = sd(.data[[dv_col]], na.rm = TRUE) / sqrt(sum(!is.na(.data[[dv_col]]))),
+    .groups = "drop"
+  )
+
+summary_data <- summary_data %>%
+  mutate(
+    bar_fill_group = if_else(
+      Situation == "Uncertain",
+      "empty",
+      as.character(Outcome)
+    )
+  )
+
+# ============================================================
+# 3. Paired subject data
+# ============================================================
+
+paired_data <- exp_data %>%
+  select(
+    Subject = all_of(sub_col),
+    Situation,
+    Outcome,
+    Value = all_of(dv_col)
+  ) %>%
+  tidyr::pivot_wider(
+    names_from = Outcome,
+    values_from = Value
+  ) %>%
+  mutate(
+    situation_num = as.numeric(Situation),
+    x = situation_num - bar_interval / 4,
+    x_end = situation_num + bar_interval / 4,
+    y = `Outcome-2`,
+    y_end = `Outcome-8`
+  )
+
+point_data <- paired_data %>%
+  select(Subject, Situation, `Outcome-2`, `Outcome-8`, x, x_end) %>%
+  tidyr::pivot_longer(
+    cols = c(`Outcome-2`, `Outcome-8`),
+    names_to = "Outcome",
+    values_to = "Value"
+  ) %>%
+  mutate(
+    Outcome = factor(Outcome, levels = outcome_levels),
+    x_point = case_when(
+      Outcome == "Outcome-2" ~ x,
+      Outcome == "Outcome-8" ~ x_end
+    )
+  )
+
+# ============================================================
+# 4. Mean values for significance annotations
+# ============================================================
+
+uncertain_outcome8_mean <- summary_data %>%
+  filter(Situation == "Uncertain", Outcome == "Outcome-8") %>%
+  pull(mean_value)
+
+certain_outcome8_mean <- summary_data %>%
+  filter(Situation == "Certain", Outcome == "Outcome-8") %>%
+  pull(mean_value)
+
+sig_uncertain_y <- uncertain_outcome8_mean + sig_y_offset
+sig_certain_y <- certain_outcome8_mean + sig_y_offset
+
+
+# ============================================================
+# 5. Plot
+# ============================================================
+
+p <- ggplot() +
+
+  geom_col(
+    data = summary_data,
+    aes(
+      x = Situation,
+      y = mean_value,
+      fill = bar_fill_group,
+      color = Outcome
+    ),
+    width = bar_width,
+    linewidth = border_size,
+    position = bar_position
+  ) +
+  
+  scale_fill_manual(
+    values = bar_fill_palette,
+    guide = "none"
+  ) +
+  
+  scale_color_manual(
+    values = bar_color_palette,
+    name = ""
+  ) +
+  
+  ggnewscale::new_scale_fill() +
+
+  geom_point(
+    data = point_data,
+    aes(
+      x = x_point,
+      y = Value,
+      fill = Outcome
+    ),
+    shape = point_shape,
+    size = point_size,
+    stroke = point_stroke,
+    color = "transparent",
+    show.legend = FALSE
+  ) +
+  
+  scale_fill_manual(
+    values = point_fill_palette,
+    guide = "none"
+  ) +
+
+  geom_errorbar(
+    data = summary_data,
+    aes(
+      x = Situation,
+      ymin = mean_value - se,
+      ymax = mean_value + se,
+      group = Outcome
+    ),
+    width = errorbar_width,
+    linewidth = errorbar_linewidth,
+    position = bar_position
+  ) +
+
+  # 
+  # scale_fill_manual(values = outcome_fill_palette, guide = "none") +
+  # scale_color_manual(values = outcome_color_palette, name = "") +
+  scale_x_discrete(labels = situation_labels) +
+
+  scale_y_continuous(
+    limits = c(y_min, y_max),
+    breaks = seq(y_break_min, y_break_max, by = y_break_by),
+    expand = expansion(mult = c(y_expand_lower, y_expand_upper))
+  ) +
+
+  labs(
+    x = x_title,
+    y = y_title
+  ) +
+
+  guides(fill = guide_legend(ncol = 2)) +
+
+  theme_pub()
+
+save_pub(p, output_path)
+
+rm(p, summary_data)
+gc()
+
+
+
+```
+
+# EXP4
+```{r data directory}
+
+data_dir <- file.path("..", "figs_data", "EXP4_CMB_data_260326.xlsx")
+```
+
+## Allocation
+```{r EXP4 Gratitude}
+# 读取 Excel 文件
+data <- read_excel(data_dir, sheet = 'Alloc_long')
+exp_data <- data[data$Outcome != "Cost-5/Uncertain", ]
+# exp_data <- exp_data[exp_data$Situation != "Ambiguous", ]
+
+### one-factor ANOVA
+print('【Exp3】')
+
+# 使用tapply计算平均值和标准差 
+means <- tapply(exp_data$Value, list(exp_data$Outcome, exp_data$Situation), mean)
+std_devs <- tapply(exp_data$Value, list(exp_data$Outcome, exp_data$Situation), sd)
+cat("Means:", means, '\n')
+cat("Standard Deviations:", std_devs, '\n')
+# 
+# 执行单因素方差分析
+MANOVA(exp_data, dv = "Value", subID = "SubID", within = c("Outcome","Situation"), sph.correction = 'GG') %>%
+  EMMEANS(effect = c("Outcome")) %>%
+  EMMEANS(effect = c("Situation")) %>%
+  EMMEANS("Outcome", by = "Situation") %>%
+  EMMEANS("Situation", by = "Outcome") 
+
+```
+
+```{r, echo=TRUE}
+
+exp3_data$Cost <- as.factor(exp3_data$Cost)
+
+# 计算每组的平均值和标准误差
+summary_data <- exp3_data %>%
+  group_by(Cost) %>%
+  summarize(mean_value = mean(Value,,na.rm=T), se = sd(Value) / sqrt(length(Value)))
+
+summary_data$exp <- 'mean'
+
+sig1_y <- 102
+sig2_y <- 107
+sig3_y <- 116
+sig_seg_margin <- 1.5
+ns_seg_margin <- 6
+
+cost2_mean <- as.double(summary_data[summary_data$Cost == "Cost-2", "mean_value"][1])
+cost28_mean <- as.double(summary_data[summary_data$Cost == "Cost-2/8", "mean_value"][1])
+cost8_mean <- as.double(summary_data[summary_data$Cost == "Cost-8", "mean_value"][1])
+
+p1 <- ggplot()+
+  # 绘制条形图和标准误差
+  geom_bar(data = summary_data, stat = "identity", aes(x = Cost, y = mean_value),
+           fill = c("#FFD06F", "#EF8A47", "#E76254"), width = bar_width) +
+  
+  # worse rect
+  geom_rect(aes(xmin = x_start, xmax = 2+bar_width/2, ymin = cost2_mean, ymax = cost28_mean), fill = '#FDE4B1', alpha = 0.4)+
+
+  # better rect
+  geom_rect(aes(xmin = x_start, xmax = 3-bar_width/2, ymin = cost28_mean, ymax = cost8_mean), fill = '#FFC8C2', alpha = 0.4)+
+  
+  geom_segment(aes(x = x_start, y = cost2_mean, xend = 1+bar_width/2, yend = cost2_mean),
+               linetype = "longdash", color = "#E19A00", size = 2) +
+  geom_segment(aes(x = x_start, y = cost28_mean, xend = 2+bar_width/2, yend = cost28_mean),
+               linetype = "longdash", color = "#B95614", size = 2) +
+  geom_segment(aes(x = x_start, y = cost8_mean, xend = 3+bar_width/2, yend = cost8_mean),
+               linetype = "longdash", color = "#C05145", size = 2) +
+
+  geom_line(data = exp3_data, aes(x=Cost, y=Value, group = ID), 
+            color = "#555555", alpha = 0.4, linetype = "longdash", size = 1.5) +
+
+  geom_point(data = exp3_data, aes(x=Cost, y=Value),size = 3, color = "#A0A0A0") +
+  
+  geom_errorbar(data = summary_data, aes(x = Cost, ymin = mean_value - se, ymax = mean_value + se),
+                width = 0.2,  # 调整errorbar的宽度
+                position = position_dodge(0.7), size = 2.5) +  # 与条形图对齐
+  
+  xlab("Outcome")+#横坐标名称
+  ylab("Gratitude")+#纵坐标名称
+  theme_classic() + #去掉背景灰色
+  theme(  
+    axis.title = element_text(size = title_size),  # 设置坐标轴名称的大小为100
+    axis.text = element_text(size = text_size),
+    axis.line = element_line(color = "black", linewidth = 2),
+
+    axis.title.y = element_text(margin = margin(r = title_margin)),  # 调整y轴标题与刻度的距离
+    axis.title.x = element_text(margin = margin(t = title_margin)),  # 调整x轴标题与刻度的距离
+    axis.text.y = element_text(margin = margin(r = text_margin)),   # 调整y轴刻度与轴线的距离
+    axis.text.x = element_text(margin = margin(t = text_margin))    # 调整x轴刻度与轴线的距离
+  ) +
+  scale_y_continuous(limits = c(0, 120), breaks = seq(0, 100, by = 25)) +
+  scale_x_discrete(labels = c("Cost-2" = "U2", "Cost-2/8" = "UU", "Cost-8" = "U8")) +
+  
+
+  
+  # geom_segment(aes(x = 1, xend = 2, y = sig1_y, yend = sig1_y), color = "black", size = sig_seg_size) +  # 显著性
+  # geom_text(aes(x = 1.5, y = sig1_y + ns_seg_margin, label = "n.s."), color = "black", size = sig_ns_size) +  # 显著性值
+  geom_segment(aes(x = 2, xend = 3, y = sig2_y, yend = sig2_y), color = "black", size = sig_seg_size) +  # 显著性
+  geom_text(aes(x = 2.5, y = sig2_y + sig_seg_margin, label = "***"), color = "black", size = sig_size) + # 显著性值
+  geom_segment(aes(x = 1, xend = 3, y = sig3_y, yend = sig3_y), color = "black", size = sig_seg_size) +  # 显著性
+  geom_text(aes(x = 2, y = sig3_y + sig_seg_margin, label = "***"), color = "black", size = sig_size) # 显著性值
+
+
+# ggsave(".\\results\\exp3_grati_avova_241226.pdf", device = cairo_pdf, plot = p1, width = width_in_inches, height = height_in_inches, units = "in")
+ggsave(".\\results\\exp3_cost_grati_avova_250410.svg", plot = p1, width = width_in_inches, height = height_in_inches, units = "in")
+
+```
+
+
+
+## Gratitude
+```{r EXP4 Gratitude}
+# 读取 Excel 文件
+data <- read_excel(data_dir, sheet = 'Grati_long')
+exp_data <- data[data$Outcome != "Cost-5/Uncertain", ]
+# exp_data <- exp_data[exp_data$Situation != "Ambiguous", ]
+
+### one-factor ANOVA
+print('【Exp3】')
+
+# 使用tapply计算平均值和标准差 
+means <- tapply(exp_data$Value, list(exp_data$Outcome, exp_data$Situation), mean)
+std_devs <- tapply(exp_data$Value, list(exp_data$Outcome, exp_data$Situation), sd)
+cat("Means:", means, '\n')
+cat("Standard Deviations:", std_devs, '\n')
+# 
+# 执行单因素方差分析
+MANOVA(exp_data, dv = "Value", subID = "SubID", within = c("Outcome","Situation"), sph.correction = 'GG') %>%
+  EMMEANS(effect = c("Outcome")) %>%
+  EMMEANS(effect = c("Situation")) %>%
+  EMMEANS("Outcome", by = "Situation") %>%
+  EMMEANS("Situation", by = "Outcome") 
+
+```
+
+# Intention
+```{r exp3 Intention-mix}
+# 读取 Excel 文件
+exp_data <- read_excel(data_dir, sheet = 'exp2_Inten')
+
+#### 提取risky下三个情境的Gratitude/Allocation
+exp3_data <- exp_data[exp_data$Situation == 'Risky' & exp_data$Cost == 'Cost-8'& exp_data$Stage == 'After',]
+
+tmp_data <- exp_data[exp_data$Situation == 'Risky' & exp_data$Cost == 'Cost-2'& exp_data$Stage == 'After',]
+exp3_data <- rbind(exp3_data, tmp_data)
+
+tmp_data <- exp_data[exp_data$Situation == 'Risky' & exp_data$Cost == 'Cost-2/8'& exp_data$Stage == 'Before',]
+exp3_data <- rbind(exp3_data, tmp_data)
+####
+
+### one-factor ANOVA
+print('【Exp3】')
+
+# 使用tapply计算平均值和标准差 
+means <- tapply(exp3_data$Value, list(exp3_data$Cost), mean)
+std_devs <- tapply(exp3_data$Value, list(exp3_data$Cost), sd)
+cat("Means:", means, '\n')
+cat("Standard Deviations:", std_devs, '\n')
+# 
+# 执行单因素方差分析
+MANOVA(exp3_data, dv = "Value", subID = "ID", within = c("Cost"), sph.correction = 'GG') %>%
+  EMMEANS(effect = c("Cost"))
+
+```
+
+# Intention fig
+```{r, echo=TRUE}
+
+exp3_data$Cost <- as.factor(exp3_data$Cost)
+
+# 计算每组的平均值和标准误差
+summary_data <- exp3_data %>%
+  group_by(Cost) %>%
+  summarize(mean_value = mean(Value,,na.rm=T), se = sd(Value) / sqrt(length(Value)))
+
+summary_data$exp <- 'mean'
+
+sig1_y <- 52
+sig2_y <- 55
+sig3_y <- 59
+sig_seg_margin <- 0.5
+ns_seg_margin <- 2.5
+
+cost2_mean <- as.double(summary_data[summary_data$Cost == "Cost-2", "mean_value"][1])
+cost28_mean <- as.double(summary_data[summary_data$Cost == "Cost-2/8", "mean_value"][1])
+cost8_mean <- as.double(summary_data[summary_data$Cost == "Cost-8", "mean_value"][1])
+
+
+
+p3 <- ggplot()+
+  # 绘制条形图和标准误差
+  # 绘制条形图和标准误差
+  geom_bar(data = summary_data, stat = "identity", aes(x = Cost, y = mean_value),
+           fill = c("#FFD06F", "#EF8A47", "#E76254"), width = bar_width) +
+  
+  # worse rect
+  geom_rect(aes(xmin = x_start, xmax = 1+bar_width/2, ymin = cost2_mean, ymax = cost28_mean), fill = '#FDE4B1', alpha = 0.4)+
+  # geom_rect(aes(xmin = 3+bar_width/2, xmax = 4, ymin = cost2_mean, ymax = cost28_mean), fill = '#FEF08A', alpha = 0.5)+
+  
+  # better rect
+  geom_rect(aes(xmin = x_start, xmax = 3-bar_width/2, ymin = cost28_mean, ymax = cost8_mean), fill = '#FFC8C2', alpha = 0.4)+
+  
+  geom_segment(aes(x = x_start, y = cost2_mean, xend = 1+bar_width/2, yend = cost2_mean),
+               linetype = "longdash", color = "#E19A00", size = 2) +
+  geom_segment(aes(x = x_start, y = cost28_mean, xend = 2+bar_width/2, yend = cost28_mean),
+               linetype = "longdash", color = "#B95614", size = 2) +
+  geom_segment(aes(x = x_start, y = cost8_mean, xend = 3+bar_width/2, yend = cost8_mean),
+               linetype = "longdash", color = "#C05145", size = 2) +
+
+  geom_line(data = exp3_data, aes(x=Cost, y=Value, group = ID), color = "#555555", alpha = 0.4, linetype = "longdash", size = 1.5) +
+
+  geom_point(data = exp3_data, aes(x=Cost, y=Value),size = 3, color = "#A0A0A0") +
+  
+  geom_errorbar(data = summary_data, aes(x = Cost, ymin = mean_value - se, ymax = mean_value + se),
+                width = 0.2,  # 调整errorbar的宽度
+                position = position_dodge(0.7), size = 2.5) +  # 与条形图对齐
+  
+  xlab("Outcome")+#横坐标名称
+  ylab("Intention")+#纵坐标名称
+  theme_classic() + #去掉背景灰色
+  theme(  
+    axis.title = element_text(size = title_size),  # 设置坐标轴名称的大小为100
+    axis.text = element_text(size = text_size)
+  ) + # 设置坐标轴刻度标签的大小为10) 
+  theme(
+    axis.title.y = element_text(margin = margin(r = title_margin + text_size * pt_to_mm)),  # 调整y轴标题与刻度的距离
+    axis.title.x = element_text(margin = margin(t = title_margin)),  # 调整x轴标题与刻度的距离
+    axis.text.y = element_text(margin = margin(r = text_margin)),   # 调整y轴刻度与轴线的距离
+    axis.text.x = element_text(margin = margin(t = text_margin)),    # 调整x轴刻度与轴线的距离
+    axis.line = element_line(color = "black", linewidth = 2)
+  ) +
+  scale_y_continuous(limits = c(0, 60), breaks = seq(0, 50, by = 10)) +
+  scale_x_discrete(labels = c("Cost-2" = "U2", "Cost-2/8" = "UU", "Cost-8" = "U8")) +
+  
+  # geom_segment(aes(x = 1, xend = 2, y = sig1_y, yend = sig1_y), color = "black", size = sig_seg_size) +  # 显著性
+  # geom_text(aes(x = 1.5, y = sig1_y + ns_seg_margin, label = "n.s."), color = "black", size = sig_ns_size) +  # 显著性值
+  geom_segment(aes(x = 2, xend = 3, y = sig2_y, yend = sig2_y), color = "black", size = sig_seg_size) +  # 显著性
+  geom_text(aes(x = 2.5, y = sig2_y + sig_seg_margin, label = "**"), color = "black", size = sig_size) + # 显著性值
+  geom_segment(aes(x = 1, xend = 3, y = sig3_y, yend = sig3_y), color = "black", size = sig_seg_size) +  # 显著性
+  geom_text(aes(x = 2, y = sig3_y + sig_seg_margin, label = "*"), color = "black", size = sig_size) # 显著性值
+
+
+# ggsave(".\\results\\exp3_intent_avova_241226.pdf", device = cairo_pdf, plot = p3, width = width_in_inches, height = height_in_inches, units = "in")
+ggsave(".\\results\\exp3_cost_intent_avova_250410.svg", plot = p3, width = width_in_inches, height = height_in_inches, units = "in")
+
+```
+
+# Save combined fig
+``` {r}
+#
+# combined_plot <- grid.arrange(p1, p2, p3, nrow = 3)
+#
+# ggsave(".\\results\\combined_uncertain_avova.svg", plot = combined_plot,
+#        width = width_in_inches, height = height_in_inches*3, units = "in", limitsize = FALSE)
+# ggsave(".\\results\\exp3_intent_avova.pdf", device = cairo_pdf, plot = combined_plot,
+#        width = width_in_inches, height = height_in_inches*3, units = "in")
+#
+```
+
+
+# EXP7
+```{r data directory}
+
+data_dir <- file.path("..", "figs_data", "02_cmf_long_data_260402.xlsx")
+```
+
+
+## Alloc
+```{r EXP3_PMPD Gratitude}
+# 读取 Excel 文件
+data <- read_excel(data_dir, sheet = 'exp7_Alloc')
+exp_data <- data[data$Outcome != "Outcome-5", ]
+# exp_data <- exp_data[exp_data$Situation != "Ambiguous", ]
+
+### one-factor ANOVA
+print('【Exp7】')
+
+# 使用tapply计算平均值和标准差 
+means <- tapply(exp_data$Rating, list(exp_data$Outcome, exp_data$Situation), mean)
+std_devs <- tapply(exp_data$Rating, list(exp_data$Outcome, exp_data$Situation), sd)
+cat("Means:", means, '\n')
+cat("Standard Deviations:", std_devs, '\n')
+# 
+# 执行单因素方差分析
+MANOVA(exp_data, dv = "Rating", subID = "SubID", within = c("Outcome","Situation"), sph.correction = 'GG') %>%
+  EMMEANS(effect = c("Outcome")) %>%
+  EMMEANS(effect = c("Situation")) %>%
+  EMMEANS("Outcome", by = "Situation") %>%
+  EMMEANS("Situation", by = "Outcome") 
+
+```
+
+
+### fig
+```{r, echo=TRUE}
+output_path <- ".\\02_fig\\03_exp7_alloc_situation_avova_260621.svg"
+
+# ============================================================
+# 3. Axis labels and y-axis
+# ============================================================
+
+x_title <- "Situation"
+y_title <- "Alloc-Cost"
+
+y_min <- 0
+y_max <- 20
+y_break_min <- 0
+y_break_max <- 20
+y_break_by <- 5
+
+
+# sig1_y <- 99
+# sig2_y <- 99
+# sig3_y <- 105
+# sig_seg_margin <- 1.5
+
+# ============================================================
+# 2. Data columns and factor settings
+# ============================================================
+
+sub_col <- "SubID"
+dv_col <- "Rating"
+
+situation_levels <- c("Uncertain", "Certain")
+outcome_levels <- c("Outcome-2", "Outcome-8")
+
+# situation_labels <- c(
+#   "Uncertain" = "Uncertain-\nto-Certain",
+#   "Certain" = "Constantly-\nCertain"
+# )
+situation_labels <- c(
+  "Uncertain" = "Uncertain",
+  "Certain" = "Certain"
+)
+outcome_labels <- c(
+  "Outcome-2" = "O2",
+  "Outcome-8" = "O8"
+)
+
+exp_data <- exp_data %>%
+  mutate(
+    Situation = factor(Situation, levels = situation_levels),
+    Outcome = factor(Outcome, levels = outcome_levels)
+  )
+
+summary_data <- exp_data %>%
+  group_by(Situation, Outcome) %>%
+  summarize(
+    mean_value = mean(.data[[dv_col]], na.rm = TRUE),
+    se = sd(.data[[dv_col]], na.rm = TRUE) / sqrt(sum(!is.na(.data[[dv_col]]))),
+    .groups = "drop"
+  )
+
+summary_data <- summary_data %>%
+  mutate(
+    bar_fill_group = if_else(
+      Situation == "Uncertain",
+      "empty",
+      as.character(Outcome)
+    )
+  )
+
+# ============================================================
+# 3. Paired subject data
+# ============================================================
+
+paired_data <- exp_data %>%
+  select(
+    Subject = all_of(sub_col),
+    Situation,
+    Outcome,
+    Value = all_of(dv_col)
+  ) %>%
+  tidyr::pivot_wider(
+    names_from = Outcome,
+    values_from = Value
+  ) %>%
+  mutate(
+    situation_num = as.numeric(Situation),
+    x = situation_num - bar_interval / 4,
+    x_end = situation_num + bar_interval / 4,
+    y = `Outcome-2`,
+    y_end = `Outcome-8`
+  )
+
+point_data <- paired_data %>%
+  select(Subject, Situation, `Outcome-2`, `Outcome-8`, x, x_end) %>%
+  tidyr::pivot_longer(
+    cols = c(`Outcome-2`, `Outcome-8`),
+    names_to = "Outcome",
+    values_to = "Value"
+  ) %>%
+  mutate(
+    Outcome = factor(Outcome, levels = outcome_levels),
+    x_point = case_when(
+      Outcome == "Outcome-2" ~ x,
+      Outcome == "Outcome-8" ~ x_end
+    )
+  )
+
+# ============================================================
+# 4. Mean values for significance annotations
+# ============================================================
+
+uncertain_outcome8_mean <- summary_data %>%
+  filter(Situation == "Uncertain", Outcome == "Outcome-8") %>%
+  pull(mean_value)
+
+certain_outcome8_mean <- summary_data %>%
+  filter(Situation == "Certain", Outcome == "Outcome-8") %>%
+  pull(mean_value)
+
+sig_uncertain_y <- uncertain_outcome8_mean + sig_y_offset
+sig_certain_y <- certain_outcome8_mean + sig_y_offset
+
+
+# ============================================================
+# 5. Plot
+# ============================================================
+
+p <- ggplot() +
+
+  geom_col(
+    data = summary_data,
+    aes(
+      x = Situation,
+      y = mean_value,
+      fill = bar_fill_group,
+      color = Outcome
+    ),
+    width = bar_width,
+    linewidth = border_size,
+    position = bar_position
+  ) +
+  
+  scale_fill_manual(
+    values = bar_fill_palette,
+    guide = "none"
+  ) +
+  
+  scale_color_manual(
+    values = bar_color_palette,
+    name = ""
+  ) +
+  
+  ggnewscale::new_scale_fill() +
+
+  geom_point(
+    data = point_data,
+    aes(
+      x = x_point,
+      y = Value,
+      fill = Outcome
+    ),
+    shape = point_shape,
+    size = point_size,
+    stroke = point_stroke,
+    color = "transparent",
+    show.legend = FALSE
+  ) +
+  
+  scale_fill_manual(
+    values = point_fill_palette,
+    guide = "none"
+  ) +
+
+  geom_errorbar(
+    data = summary_data,
+    aes(
+      x = Situation,
+      ymin = mean_value - se,
+      ymax = mean_value + se,
+      group = Outcome
+    ),
+    width = errorbar_width,
+    linewidth = errorbar_linewidth,
+    position = bar_position
+  ) +
+
+  # 
+  # scale_fill_manual(values = outcome_fill_palette, guide = "none") +
+  # scale_color_manual(values = outcome_color_palette, name = "") +
+  scale_x_discrete(labels = situation_labels) +
+
+  scale_y_continuous(
+    limits = c(y_min, y_max),
+    breaks = seq(y_break_min, y_break_max, by = y_break_by),
+    expand = expansion(mult = c(y_expand_lower, y_expand_upper))
+  ) +
+
+  labs(
+    x = x_title,
+    y = y_title
+  ) +
+
+  guides(fill = guide_legend(ncol = 2)) +
+
+  theme_pub()
+
+save_pub(p, output_path)
+
+rm(p, summary_data)
+gc()
+
+
+
+```

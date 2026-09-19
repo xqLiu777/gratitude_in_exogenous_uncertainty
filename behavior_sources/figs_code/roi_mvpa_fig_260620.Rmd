@@ -1,0 +1,401 @@
+```{r packages}
+
+library(readxl)
+library(bruceR)
+library(ggplot2)#绘图工具
+library(openxlsx)
+
+```
+
+
+```{r}
+
+data_dir <- file.path("..", "figs_data", "roi_decoding_acc_241120.xlsx")
+
+pt_to_mm <- 0.57
+pt_to_mm_y <- 1.4
+mm_to_pt <- 2.8346
+
+width_in_inches <- 50
+height_in_inches <- 17
+
+bar_width <- 0.5
+
+bar_dist <- 0.1
+
+```
+
+# fig-1
+```{r}
+
+summary_data <- read_excel(data_dir, sheet = 'all')
+summary_data$Situation <- factor(summary_data$Situation, levels = c("Uncertain_8_vs_2", "Certain_8_vs_2"))
+summary_data$ROI <- factor(summary_data$ROI, levels = c("dmPFC", "dlPFC", "Lingual Gyrus", "SMA"))
+
+
+point_jitter <- 0.02
+point_size <- 8
+point_alpha <- 0.4
+fill_alpha <- 0.5
+
+p <- ggplot(data = summary_data, aes(x = ROI, y = FC_accuracy, fill = Situation) )+
+  # 绘制条形图和标准误差 
+
+  geom_bar(stat = "identity", size = 6, width = bar_width, position = position_dodge(width = bar_width + bar_dist),  
+           color = "#999999", linewidth = 1) +
+  scale_fill_manual(
+    values = c(
+      scales::alpha("#F9A958", fill_alpha),
+      scales::alpha("#74BCD9", fill_alpha)),
+    name = "") +  
+  
+  geom_hline(yintercept = 0.5, color = "#555555", size = 3, linetype = "dashed") +   # 添加水平线 , 
+
+  geom_errorbar(aes(ymin = FC_accuracy - FC_accuracy_se, ymax = FC_accuracy + FC_accuracy_se),
+                width = 0.1,  # 调整errorbar的宽度
+                position = position_dodge(width = bar_width + bar_dist), size = 2.5) +  # 与条形图对齐
+
+  xlab("") + #横坐标名称
+  ylab("Forced-choice Accuracy") + #纵坐标名称
+  theme_classic() + #去掉背景灰色
+  theme(
+    axis.title = element_text(size = 90),  # 设置坐标轴名称的大小为100
+    axis.text.y = element_text(size = 90),
+    axis.text.x = element_text(size = 90)
+  ) + # 设置坐标轴刻度标签的大小为10)  # 设置字体大小为80
+  theme(
+    axis.title.y = element_text(margin = margin(r = 60 * pt_to_mm)),  # 调整y轴标题与刻度的距离
+    axis.title.x = element_text(margin = margin(t = 20 * pt_to_mm_y)),  # 调整x轴标题与刻度的距离
+    axis.text.y = element_text(margin = margin(r = 35)),   # 调整y轴刻度与轴线的距离
+    axis.text.x = element_text(margin = margin(t = 35))    # 调整x轴刻度与轴线的距离
+  ) +
+  theme(legend.position = "none") +
+  
+  scale_y_continuous(limits = c(0, 1.1), breaks = seq(0, 1, by = 0.25)) +
+
+  # geom_text(aes(x = 1 - bar_width/4 - bar_dist/4, y = 0.024, label = "***"), color = "black", size = 24, family = "Arial") +  # 在显著性线上方添加显著性值
+  # geom_text(aes(x = 1 + bar_width/4 + bar_dist/4, y = 0.048, label = "n.s."), color = "black", size = 24, family = "Arial") +  # 在显著性线上方添加显著性值
+  # 
+  # 
+  # geom_text(aes(x = 2 - bar_width/4 - bar_dist/4, y = 0.048, label = "n.s."), color = "black", size = 24, family = "Arial") +  # 在显著性线上方添加显著性值
+  # geom_text(aes(x = 2 + bar_width/4 + bar_dist/4, y = 0.024, label = "***"), color = "black", size = 24, family = "Arial") +  # 在显著性线上方添加显著性值
+  # 
+  # 
+  # geom_text(aes(x = 3 - bar_width/4 - bar_dist/4, y = 0.024, label = "***"), color = "black", size = 24, family = "Arial") +  # 在显著性线上方添加显著性值
+  # geom_text(aes(x = 3 + bar_width/4 + bar_dist/4, y = 0.024, label = "***"), color = "black", size = 24, family = "Arial") +  # 在显著性线上方添加显著性值
+  # 
+  # 
+  # geom_text(aes(x = 4 - bar_width/4 - bar_dist/4, y = 0.048, label = "n.s."), color = "black", size = 30, family = "Arial") +  # 在显著性线上方添加显著性值
+  # geom_text(aes(x = 4 + bar_width/4 + bar_dist/4, y = 0.024, label = "***"), color = "black", size = 30, family = "Arial") +  # 在显著性线上方添加显著性值
+
+  theme(axis.line = element_line(color = "black", linewidth = 2)) +   # 设置坐标轴颜色为黑色，宽度为2
+  
+  guides(color = guide_legend(ncol = 2)) # 设置图例为两列
+
+
+
+# ggsave(".\\fig\\all_acc_fig_241121.pdf", device = cairo_pdf, plot = p, width = width_in_inches, height = height_in_inches, units = "in", limitsize = FALSE)
+# 
+# ggsave(".\\fig\\all_acc_fig_241121.png", plot = p, width = width_in_inches, height = height_in_inches, units = "in", limitsize = FALSE)
+# 
+
+ggsave(".\\02_fig\\all_acc_fig_260620-1.svg", plot = p, width = width_in_inches, height = height_in_inches, units = "in", limitsize = FALSE)
+```
+
+## fig-2
+```{r}
+
+summary_data <- read_excel(data_dir, sheet = 'all')
+summary_data$Situation <- factor(summary_data$Situation, levels = c("Uncertain_8_vs_2", "Certain_8_vs_2"))
+summary_data$ROI <- factor(summary_data$ROI, levels = c("dmPFC", "dlPFC", "Lingual Gyrus", "SMA"))
+
+
+point_jitter <- 0.02
+point_size <- 8
+point_alpha <- 0.4
+fill_alpha <- 0.2
+
+p <- ggplot()+
+  # 绘制条形图和标准误差 
+
+  geom_bar(data = summary_data, aes(x = ROI, y = FC_accuracy, fill = Situation, color = Situation),
+           stat = "identity", size = 6, width = bar_width, position = position_dodge(width = bar_width + bar_dist),  
+           linewidth = 6) +
+  # color = "#999999", 
+  scale_fill_manual(
+    values = c(
+      scales::alpha("#F9A958", fill_alpha),
+      scales::alpha("#74BCD9", fill_alpha)),
+    name = "") +  
+  
+  scale_color_manual(
+    values = c(
+      "#F9A958", 
+      "#74BCD9"),
+    name = "") +
+  
+  geom_hline(yintercept = 0.5, color = "#555555", size = 3, linetype = "dashed") +   # 添加水平线 , 
+
+  geom_errorbar(data = summary_data, aes(x = ROI, group = Situation, 
+                                         ymin = FC_accuracy - FC_accuracy_se, ymax = FC_accuracy + FC_accuracy_se),
+                width = 0.1,  # 调整errorbar的宽度
+                position = position_dodge(width = bar_width + bar_dist), size = 2.5) +  # 与条形图对齐
+
+  xlab("") + #横坐标名称
+  ylab("Forced-choice Accuracy") + #纵坐标名称
+  theme_classic() + #去掉背景灰色
+  theme(
+    axis.title = element_text(size = 90),  # 设置坐标轴名称的大小为100
+    axis.text.y = element_text(size = 90),
+    axis.text.x = element_text(size = 90)
+  ) + # 设置坐标轴刻度标签的大小为10)  # 设置字体大小为80
+  theme(
+    axis.title.y = element_text(margin = margin(r = 60 * pt_to_mm)),  # 调整y轴标题与刻度的距离
+    axis.title.x = element_text(margin = margin(t = 20 * pt_to_mm_y)),  # 调整x轴标题与刻度的距离
+    axis.text.y = element_text(margin = margin(r = 35)),   # 调整y轴刻度与轴线的距离
+    axis.text.x = element_text(margin = margin(t = 35))    # 调整x轴刻度与轴线的距离
+  ) +
+  theme(legend.position = "none") +
+  
+  scale_y_continuous(limits = c(0, 1.1), breaks = seq(0, 1, by = 0.25)) +
+
+  # geom_text(aes(x = 1 - bar_width/4 - bar_dist/4, y = 0.024, label = "***"), color = "black", size = 24, family = "Arial") +  # 在显著性线上方添加显著性值
+  # geom_text(aes(x = 1 + bar_width/4 + bar_dist/4, y = 0.048, label = "n.s."), color = "black", size = 24, family = "Arial") +  # 在显著性线上方添加显著性值
+  # 
+  # 
+  # geom_text(aes(x = 2 - bar_width/4 - bar_dist/4, y = 0.048, label = "n.s."), color = "black", size = 24, family = "Arial") +  # 在显著性线上方添加显著性值
+  # geom_text(aes(x = 2 + bar_width/4 + bar_dist/4, y = 0.024, label = "***"), color = "black", size = 24, family = "Arial", fontface = "plain") +  # 在显著性线上方添加显著性值
+  # 
+  # 
+  # geom_text(aes(x = 3 - bar_width/4 - bar_dist/4, y = 0.024, label = "***"), color = "black", size = 24, family = "Arial") +  # 在显著性线上方添加显著性值
+  # geom_text(aes(x = 3 + bar_width/4 + bar_dist/4, y = 0.024, label = "***"), color = "black", size = 24, family = "Arial") +  # 在显著性线上方添加显著性值
+  # 
+  # 
+  # geom_text(aes(x = 4 - bar_width/4 - bar_dist/4, y = 0.048, label = "n.s."), color = "black", size = 30, family = "Arial") +  # 在显著性线上方添加显著性值
+  # geom_text(aes(x = 4 + bar_width/4 + bar_dist/4, y = 0.024, label = "***"), color = "black", size = 30, family = "Arial") +  # 在显著性线上方添加显著性值
+
+  theme(axis.line = element_line(color = "black", linewidth = 2)) +   # 设置坐标轴颜色为黑色，宽度为2
+  
+  guides(color = guide_legend(ncol = 2)) # 设置图例为两列
+
+
+
+# ggsave(".\\fig\\all_acc_fig_241121.pdf", device = cairo_pdf, plot = p, width = width_in_inches, height = height_in_inches, units = "in", limitsize = FALSE)
+# 
+# ggsave(".\\fig\\all_acc_fig_241121.png", plot = p, width = width_in_inches, height = height_in_inches, units = "in", limitsize = FALSE)
+# 
+
+ggsave(".\\02_fig\\all_acc_fig_260620.svg", plot = p, width = width_in_inches, height = height_in_inches, units = "in", limitsize = FALSE)
+```
+
+```{r}
+
+summary_data <- read_excel(data_dir, sheet = 'ROI_052')
+summary_data$Situation <- factor(summary_data$Situation, levels = c("Uncertain_8_vs_2", "Certain_8_vs_2"))
+
+point_jitter <- 0.02
+point_size <- 8
+point_alpha <- 0.5
+
+p <- ggplot()+
+  # 绘制条形图和标准误差 
+  geom_hline(yintercept = 0.5, color = "#999999", size = 3, linetype = "dashed") +   # 添加水平线 , 
+  geom_bar(data = summary_data, stat = "identity", aes(x = Situation, y = FC_accuracy, color = Situation), size = 6, fill = NA, width = bar_width) +
+  scale_color_manual(values = c("#F7AA58", "#528FAD"), name = "") +  
+
+
+  geom_errorbar(data = summary_data, aes(x = Situation, ymin = FC_accuracy - FC_accuracy_se, ymax = FC_accuracy + FC_accuracy_se),
+                width = 0.2,  # 调整errorbar的宽度
+                position = position_dodge(width = bar_width), size = 2.5) +  # 与条形图对齐
+
+  xlab("") + #横坐标名称
+  ylab("Forced-choice Accuracy") + #纵坐标名称
+  theme_classic() + #去掉背景灰色
+  theme(
+    axis.title = element_text(size = 100),  # 设置坐标轴名称的大小为100
+    axis.text.y = element_text(size = 90),
+    axis.text.x = element_text(size = 70)
+  ) + # 设置坐标轴刻度标签的大小为10)  # 设置字体大小为80
+  theme(
+    axis.title.y = element_text(margin = margin(r = 90 * pt_to_mm)),  # 调整y轴标题与刻度的距离
+    axis.title.x = element_text(margin = margin(t = 20 * pt_to_mm_y)),  # 调整x轴标题与刻度的距离
+    axis.text.y = element_text(margin = margin(r = 35)),   # 调整y轴刻度与轴线的距离
+    axis.text.x = element_text(margin = margin(t = 35))    # 调整x轴刻度与轴线的距离
+  ) +
+  theme(legend.position = "none") +
+  
+  scale_y_continuous(limits = c(0, 1), breaks = seq(0, 1, by = 0.25)) +
+
+  geom_text(aes(x = 1, y = ccost8_mean + 0.048, label = "***"), color = "black", size = 30) +  # 在显著性线上方添加显著性值
+
+  geom_text(aes(x = 2, y = ccost8_mean + 0.043, label = "n.s."), color = "black", size = 30) + # 在显著性线上方添加显著性值
+
+  theme(axis.line = element_line(color = "black", linewidth = 2)) +   # 设置坐标轴颜色为黑色，宽度为2
+  
+  guides(color = guide_legend(ncol = 2)) # 设置图例为两列
+
+
+ggsave(".\\fig\\roi052_acc_fig_241121.pdf", device = cairo_pdf, plot = p, width = width_in_inches, height = height_in_inches, units = "in")
+
+ggsave(".\\fig\\roi052_acc_fig_241121.png", plot = p, width = width_in_inches, height = height_in_inches, units = "in")
+
+```
+
+```{r}
+
+summary_data <- read_excel(data_dir, sheet = 'ROI_117')
+summary_data$Situation <- factor(summary_data$Situation, levels = c("Uncertain_8_vs_2", "Certain_8_vs_2"))
+
+point_jitter <- 0.02
+point_size <- 8
+point_alpha <- 0.5
+
+p <- ggplot()+
+  # 绘制条形图和标准误差 
+  geom_hline(yintercept = 0.5, color = "#999999", size = 3, linetype = "dashed") +   # 添加水平线 , 
+  geom_bar(data = summary_data, stat = "identity", aes(x = Situation, y = FC_accuracy, color = Situation), size = 6, fill = NA, width = bar_width) +
+  scale_color_manual(values = c("#F7AA58", "#528FAD"), name = "") +  
+
+
+  geom_errorbar(data = summary_data, aes(x = Situation, ymin = FC_accuracy - FC_accuracy_se, ymax = FC_accuracy + FC_accuracy_se),
+                width = 0.2,  # 调整errorbar的宽度
+                position = position_dodge(width = bar_width), size = 2.5) +  # 与条形图对齐
+
+  xlab("") + #横坐标名称
+  ylab("Accuracy") + #纵坐标名称
+  theme_classic() + #去掉背景灰色
+  theme(
+    axis.title = element_text(size = 100),  # 设置坐标轴名称的大小为100
+    axis.text.y = element_text(size = 90),
+    axis.text.x = element_text(size = 70)
+  ) + # 设置坐标轴刻度标签的大小为10)  # 设置字体大小为80
+  theme(
+    axis.title.y = element_text(margin = margin(r = 90 * pt_to_mm)),  # 调整y轴标题与刻度的距离
+    axis.title.x = element_text(margin = margin(t = 20 * pt_to_mm_y)),  # 调整x轴标题与刻度的距离
+    axis.text.y = element_text(margin = margin(r = 35)),   # 调整y轴刻度与轴线的距离
+    axis.text.x = element_text(margin = margin(t = 35))    # 调整x轴刻度与轴线的距离
+  ) +
+  theme(legend.position = "none") +
+  
+  scale_y_continuous(limits = c(0, 1), breaks = seq(0, 1, by = 0.25)) +
+
+  geom_text(aes(x = 1, y = ccost8_mean + 0.048, label = "***"), color = "black", size = 30) +  # 在显著性线上方添加显著性值
+
+  geom_text(aes(x = 2, y = ccost8_mean + 0.043, label = "***"), color = "black", size = 30) + # 在显著性线上方添加显著性值
+
+  theme(axis.line = element_line(color = "black", linewidth = 2)) +   # 设置坐标轴颜色为黑色，宽度为2
+  
+  guides(color = guide_legend(ncol = 2)) # 设置图例为两列
+
+
+ggsave(".\\fig\\roi117_acc_fig_241121.pdf", device = cairo_pdf, plot = p, width = width_in_inches, height = height_in_inches, units = "in")
+
+ggsave(".\\fig\\roi117_acc_fig_241121.png", plot = p, width = width_in_inches, height = height_in_inches, units = "in")
+
+```
+
+```{r}
+
+summary_data <- read_excel(data_dir, sheet = 'ROI_143')
+summary_data$Situation <- factor(summary_data$Situation, levels = c("Uncertain_8_vs_2", "Certain_8_vs_2"))
+
+point_jitter <- 0.02
+point_size <- 8
+point_alpha <- 0.5
+
+p <- ggplot()+
+  # 绘制条形图和标准误差 
+  geom_hline(yintercept = 0.5, color = "#999999", size = 3, linetype = "dashed") +   # 添加水平线 , 
+  geom_bar(data = summary_data, stat = "identity", aes(x = Situation, y = FC_accuracy, color = Situation), size = 6, fill = NA, width = bar_width) +
+  scale_color_manual(values = c("#F7AA58", "#528FAD"), name = "") +  
+
+
+  geom_errorbar(data = summary_data, aes(x = Situation, ymin = FC_accuracy - FC_accuracy_se, ymax = FC_accuracy + FC_accuracy_se),
+                width = 0.2,  # 调整errorbar的宽度
+                position = position_dodge(width = bar_width), size = 2.5) +  # 与条形图对齐
+
+  xlab("") + #横坐标名称
+  ylab("Accuracy") + #纵坐标名称
+  theme_classic() + #去掉背景灰色
+  theme(
+    axis.title = element_text(size = 100),  # 设置坐标轴名称的大小为100
+    axis.text.y = element_text(size = 90),
+    axis.text.x = element_text(size = 70)
+  ) + # 设置坐标轴刻度标签的大小为10)  # 设置字体大小为80
+  theme(
+    axis.title.y = element_text(margin = margin(r = 90 * pt_to_mm)),  # 调整y轴标题与刻度的距离
+    axis.title.x = element_text(margin = margin(t = 20 * pt_to_mm_y)),  # 调整x轴标题与刻度的距离
+    axis.text.y = element_text(margin = margin(r = 35)),   # 调整y轴刻度与轴线的距离
+    axis.text.x = element_text(margin = margin(t = 35))    # 调整x轴刻度与轴线的距离
+  ) +
+  theme(legend.position = "none") +
+  
+  scale_y_continuous(limits = c(0, 1), breaks = seq(0, 1, by = 0.25)) +
+
+  geom_text(aes(x = 1, y = ccost8_mean + 0.048, label = "n.s."), color = "black", size = 30) +  # 在显著性线上方添加显著性值
+
+  geom_text(aes(x = 2, y = ccost8_mean + 0.043, label = "***"), color = "black", size = 30) + # 在显著性线上方添加显著性值
+
+  theme(axis.line = element_line(color = "black", linewidth = 2)) +   # 设置坐标轴颜色为黑色，宽度为2
+  
+  guides(color = guide_legend(ncol = 2)) # 设置图例为两列
+
+
+ggsave(".\\fig\\roi143_acc_fig_241121.pdf", device = cairo_pdf, plot = p, width = width_in_inches, height = height_in_inches, units = "in")
+
+ggsave(".\\fig\\roi143_acc_fig_241121.png", plot = p, width = width_in_inches, height = height_in_inches, units = "in")
+
+```
+
+```{r}
+
+summary_data <- read_excel(data_dir, sheet = 'ROI_168')
+summary_data$Situation <- factor(summary_data$Situation, levels = c("Uncertain_8_vs_2", "Certain_8_vs_2"))
+
+point_jitter <- 0.02
+point_size <- 8
+point_alpha <- 0.5
+
+p <- ggplot()+
+  # 绘制条形图和标准误差 
+  geom_hline(yintercept = 0.5, color = "#999999", size = 3, linetype = "dashed") +   # 添加水平线 , 
+  geom_bar(data = summary_data, stat = "identity", aes(x = Situation, y = FC_accuracy, color = Situation), size = 6, fill = NA, width = bar_width) +
+  scale_color_manual(values = c("#F7AA58", "#528FAD"), name = "") +  
+
+
+  geom_errorbar(data = summary_data, aes(x = Situation, ymin = FC_accuracy - FC_accuracy_se, ymax = FC_accuracy + FC_accuracy_se),
+                width = 0.2,  # 调整errorbar的宽度
+                position = position_dodge(width = bar_width), size = 2.5) +  # 与条形图对齐
+
+  xlab("") + #横坐标名称
+  ylab("Accuracy") + #纵坐标名称
+  theme_classic() + #去掉背景灰色
+  theme(
+    axis.title = element_text(size = 100),  # 设置坐标轴名称的大小为100
+    axis.text.y = element_text(size = 90),
+    axis.text.x = element_text(size = 70)
+  ) + # 设置坐标轴刻度标签的大小为10)  # 设置字体大小为80
+  theme(
+    axis.title.y = element_text(margin = margin(r = 90 * pt_to_mm)),  # 调整y轴标题与刻度的距离
+    axis.title.x = element_text(margin = margin(t = 20 * pt_to_mm_y)),  # 调整x轴标题与刻度的距离
+    axis.text.y = element_text(margin = margin(r = 35)),   # 调整y轴刻度与轴线的距离
+    axis.text.x = element_text(margin = margin(t = 35))    # 调整x轴刻度与轴线的距离
+  ) +
+  theme(legend.position = "none") +
+  
+  scale_y_continuous(limits = c(0, 1), breaks = seq(0, 1, by = 0.25)) +
+
+  geom_text(aes(x = 1, y = ccost8_mean + 0.048, label = "n.s."), color = "black", size = 30) +  # 在显著性线上方添加显著性值
+
+  geom_text(aes(x = 2, y = ccost8_mean + 0.043, label = "***"), color = "black", size = 30) + # 在显著性线上方添加显著性值
+
+  theme(axis.line = element_line(color = "black", linewidth = 2)) +   # 设置坐标轴颜色为黑色，宽度为2
+  
+  guides(color = guide_legend(ncol = 2)) # 设置图例为两列
+
+
+ggsave(".\\fig\\roi168_acc_fig_241121.pdf", device = cairo_pdf, plot = p, width = width_in_inches, height = height_in_inches, units = "in")
+
+ggsave(".\\fig\\roi168_acc_fig_241121.png", plot = p, width = width_in_inches, height = height_in_inches, units = "in")
+
+```

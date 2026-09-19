@@ -1,0 +1,760 @@
+---
+title: "Untitled"
+output: html_document
+date: "2025-12-15"
+---
+
+```{r library}
+
+library(readxl)
+library(dplyr)
+library(gghalves)
+library(broom)
+library(tidyr)
+library(gtable)
+library(grid)
+library(effectsize)
+library(ggdist)
+library(ggbeeswarm)
+library(bruceR)
+
+source("plot_theme.R")
+source("save_pub.R")
+```
+
+# Parameter
+```{r}
+# =========================
+# Parameter
+# =========================
+
+
+high_line  <- "#D97742"
+# mid_line  <- "#5D9C59"
+low_line <- "#4F81BD"
+
+high_fill  <- "#F3B082"
+low_fill <- "#9DC3E6"
+
+# ---------- half-eye / raincloud ----------
+violin_width <- 0.7
+violin_linewidth <- 2
+violin_alpha <- 0.2
+
+density_adjust <- 1
+density_trim <- FALSE
+scale <- 0.45
+
+point_x_offset <- 0.06
+
+jitter_width <- 0.08
+jitter_size <- 6
+jitter_alpha <- 0.45
+
+mean_point_size <- 12
+mean_errorbar_width <- 0.15
+mean_errorbar_linewidth <- 4
+
+reg_linewidth <- 4
+
+sig_y <- 60
+# sig_size <- 42
+
+sig_size_plus <- 22   # +
+sig_size_star <- 30   # *
+sig_size_ns   <- 22   # ns（如果保留的话）
+
+# Vertical offset
+sig_offset_plus  <- 0.4
+sig_offset_star  <- 0
+sig_offset_ns    <- 0
+```
+
+# EXP5
+## Allocation
+
+```{r}
+
+data_dir <- paste0(file.path("..", "figs_data"), .Platform$file.sep)
+data_path <- paste0(data_dir, 'EXP2-2_CMPD_Uncertain-to-Certain_widedata_260128.xlsx')
+
+situation_levels <- c("Uncertain46", "Uncertain37", "Uncertain28")
+situation_labels <- c("U46", "U37", "U28")
+
+df <- read_excel(data_path, sheet = "Allocation") %>%
+  mutate(
+    Situation = factor(Situation, levels = situation_levels),
+    Situation_num = as.numeric(Situation)
+  )
+
+```
+
+```{r}
+
+data_dir <- paste0(file.path("..", "figs_data"), .Platform$file.sep)
+data_path <- paste0(data_dir, '04_1_var_differ_byPE_EXP2-2_CMPD_260714.xlsx')
+
+situation_levels <- c("Uncertain46", "Uncertain37", "Uncertain28")
+situation_labels <- c("U46", "U37", "U28")
+
+df <- read_excel(data_path, sheet = "Sheet2") %>%
+  mutate(
+    Situation = factor(Situation, levels = situation_levels),
+    Situation_num = as.numeric(Situation)
+  )
+
+# exp_data_1 <- exp_data[exp_data$Cost != 'Uncertain/Cost-5',]
+# 执行单因素方差分析
+MANOVA(
+  df, dv = "var_abs", subID = "SubID", within = c("Outcome","Situation"), sph.correction = 'GG') %>%
+  EMMEANS(effect = "Outcome", p.adjust = "bonferroni") %>%
+  EMMEANS(effect = "Situation", p.adjust = "bonferroni") %>%
+  EMMEANS(effect = "Outcome", by = "Situation", p.adjust = "bonferroni") %>%
+  EMMEANS(effect = "Situation", by = "Outcome", p.adjust = "bonferroni") 
+
+
+```
+
+```{r regression}
+
+
+# =========================
+# Overall t-test
+# =========================
+t_test <- t.test(df$var_abs_diff, mu = 0)
+d_result <- cohens_d(t_test)
+
+print(t_test)
+print(d_result)
+
+# =========================
+# One-sample t-test by Situation
+# =========================
+
+ttest_res <- df %>%
+  group_by(Situation, Situation_num) %>%
+  summarize(
+    test = list(tidy(t.test(var_abs_diff, mu = 0))),
+    .groups = "drop"
+  ) %>%
+  unnest(test) %>%
+  mutate(
+    p_adj = p.value,
+    # p_adj = p.adjust(p.value, method = "bonferroni"),
+
+    sig = case_when(
+      p_adj < 0.001 ~ "***",
+      p_adj < 0.01  ~ "**",
+      p_adj < 0.05  ~ "*",
+      p_adj < 0.10  ~ "†",
+      TRUE ~ ""
+    ),
+
+    sig_size = case_when(
+      sig == "†"   ~ sig_size_plus,
+      sig == "*"   ~ sig_size_star,
+      sig == "**"  ~ sig_size_star,
+      sig == "***" ~ sig_size_star,
+      TRUE         ~ sig_size_ns
+    ),
+    
+    sig_y_plot = sig_y + case_when(
+      sig == "†"   ~ sig_offset_plus,
+      sig == "*"   ~ sig_offset_star,
+      sig == "**"  ~ sig_offset_star,
+      sig == "***" ~ sig_offset_star,
+      TRUE         ~ sig_offset_ns
+    )
+  )
+  
+ttest_res
+
+```
+
+```{r regression}
+
+# =========================
+# Long data
+# =========================
+plot_data <- df %>%
+  select(Situation, Situation_num, high_var_abs, low_var_abs) %>%
+  pivot_longer(
+    cols = c(high_var_abs, low_var_abs),
+    names_to = "Group",
+    values_to = "Value"
+  ) %>%
+  mutate(
+    Group = recode(
+      Group,
+      high_var_abs = "High",
+      low_var_abs = "Low"
+    ),
+    Group = factor(Group, levels = c("Low", "High")),
+    x_pos = case_when(
+      Group == "Low"  ~ Situation_num - point_x_offset,
+      Group == "High" ~ Situation_num + point_x_offset
+    )
+  )
+
+# =========================
+# Regression results
+# =========================
+lm_high <- lm(high_var_abs ~ Situation_num, data = df)
+lm_low <- lm(low_var_abs ~ Situation_num, data = df)
+
+high_summary <- summary(lm_high)
+low_summary <- summary(lm_low)
+
+reg_results <- data.frame(
+  Group = c("High", "Low"),
+  Intercept = c(coef(lm_high)[1], coef(lm_low)[1]),
+  Slope = c(coef(lm_high)[2], coef(lm_low)[2]),
+  R_squared = c(high_summary$r.squared, low_summary$r.squared),
+  P_value = c(
+    coef(high_summary)["Situation_num", "Pr(>|t|)"],
+    coef(low_summary)["Situation_num", "Pr(>|t|)"]
+  )
+)
+
+summary(lm_high)
+summary(lm_low)
+reg_results
+
+# =========================
+# Mean ± SE
+# =========================
+summary_long <- plot_data %>%
+  group_by(Situation, Situation_num, Group, x_pos) %>%
+  summarize(
+    mean_value = mean(Value, na.rm = TRUE),
+    se = sd(Value, na.rm = TRUE) / sqrt(sum(!is.na(Value))),
+    .groups = "drop"
+  )
+
+summary_long
+
+```
+
+
+## fig-Allocation
+```{r}
+# =========================
+# Figure: Vertical raincloud + mean ± SE + regression
+# =========================
+
+output_path <- ".\\02_fig\\02_exp5_var_diff_CMPD_260613.svg"
+
+p <- ggplot() +
+
+  # Regression lines
+  geom_smooth(
+    data = plot_data,
+    aes(
+      x = x_pos,
+      y = Value,
+      color = Group,
+      group = Group
+    ),
+    method = "lm",
+    formula = y ~ x,
+    se = FALSE,
+    linewidth = reg_linewidth,
+    alpha = 1
+  ) +
+
+  # ---------- Outcome2: left half-eye ----------
+  stat_halfeye(
+    data = plot_data %>% filter(Group == "Low"),
+    aes(
+      x = Situation_num - point_x_offset,
+      y = Value,
+      fill = Group
+    ),
+    fill = scales::alpha(low_fill, violin_alpha),
+    slab_color = low_line,
+    slab_linewidth = violin_linewidth,
+    orientation = "vertical",
+    side = "left",
+    adjust = density_adjust,
+    trim = density_trim,
+    width = violin_width,
+    scale = scale,
+    .width = 0,
+    point_interval = NULL
+  ) +
+  # # High
+  # stat_halfeye(
+  #   data = plot_data %>% filter(Group == "High"),
+  #   aes(
+  #     x = Situation_num + point_x_offset,
+  #     y = Value,
+  #     fill = Group
+  #   ),
+  #   side = "right",
+  #   adjust = 1,
+  #   width = violin_width,
+  #   slab_alpha = violin_alpha,
+  #   .width = 0,
+  #   point_interval = NULL,
+  #   color = NA
+  # ) +
+  stat_halfeye(
+    data = plot_data %>% filter(Group == "High"),
+    aes(
+      x = Situation_num + point_x_offset,
+      y = Value,
+      fill = Group
+    ),
+    fill = scales::alpha(high_fill, violin_alpha),
+    slab_color = high_line,
+    slab_linewidth = violin_linewidth,
+    orientation = "vertical",
+    side = "right",
+    adjust = density_adjust,
+    trim = density_trim,
+    width = violin_width,
+    scale = scale,
+    .width = 0,
+    point_interval = NULL
+  ) +
+
+  # Mean ± SE
+  geom_errorbar(
+    data = summary_long,
+    aes(
+      x = x_pos,
+      ymin = mean_value - se,
+      ymax = mean_value + se,
+      color = Group
+    ),
+    width = mean_errorbar_width,
+    linewidth = mean_errorbar_linewidth
+  ) +
+  
+  # Mean diamond
+  geom_point(
+    data = summary_long,
+    aes(
+      x = x_pos,
+      y = mean_value,
+      fill = Group
+    ),
+    shape = 23,
+    size = mean_point_size,
+    color = "black",
+    stroke = 3
+  ) +
+
+  # Significance labels
+  geom_text(
+    data = ttest_res,
+    aes(
+      x = Situation_num,
+      y = sig_y_plot,
+      label = sig,
+      size = sig_size
+    ),
+    color = "black",
+    
+  ) +
+  scale_size_identity() + 
+  scale_fill_manual(
+    values = c(
+      Low = low_fill,
+      High = high_fill
+    )
+  ) +
+
+  scale_color_manual(
+    values = c(
+      Low = low_line,
+      High = high_line
+    )
+  ) +
+
+  scale_y_continuous(
+    limits = c(0, 45),
+    breaks = seq(0, 40, by = 10),
+    expand = expansion(mult = c(0.0, 0.0)),
+  ) +
+
+  scale_x_continuous(
+    breaks = c(1, 2, 3),
+    labels = situation_labels,
+    expand = expansion(mult = c(0, 0))
+  ) +
+  coord_cartesian(
+    xlim = c(0.5, 3.5),
+    clip = "off"
+  ) +
+
+  labs(
+    x = "Situation",
+    y = "|ΔAllocation|"
+  ) +
+
+  theme_pub()
+
+save_pub(p, output_path)
+
+rm(p, summary_data)
+gc()
+
+```
+
+
+
+# EXP6
+## Allocation
+
+```{r}
+
+data_dir <- paste0(file.path("..", "figs_data"), .Platform$file.sep)
+data_path <- paste0(data_dir, '04_var_differ_byPE_EXP6_PMPD_260622.xlsx')
+
+situation_levels <- c("1.2", "2.4", "3.0", "3.6", "4.8")
+situation_labels <- c("1.2", "2.4", "3.0", "3.6", "4.8")
+
+df <- read_excel(data_path, sheet = "Allocation") %>%
+  mutate(
+    Situation = factor(PE, levels = situation_levels),
+    Situation_num = as.numeric(PE)
+  )
+
+```
+
+```{r}
+# exp_data_1 <- exp_data[exp_data$Cost != 'Uncertain/Cost-5',]
+# 执行单因素方差分析
+
+data_dir <- paste0(file.path("..", "figs_data"), .Platform$file.sep)
+data_path <- paste0(data_dir, '04_var_differ_byPE_EXP6_PMPD_260622.xlsx')
+
+situation_levels <- c("1.2", "2.4", "3.0", "3.6", "4.8")
+situation_labels <- c("1.2", "2.4", "3.0", "3.6", "4.8")
+
+df <- read_excel(data_path, sheet = "Allocation_long") %>%
+  mutate(
+    Situation = factor(PE, levels = situation_levels),
+    Situation_num = as.numeric(PE)
+  )
+
+MANOVA(
+  df, dv = "var_abs", subID = "SubID", within = c("Outcome","PE"), sph.correction = 'GG') %>%
+  EMMEANS(effect = "Outcome", p.adjust = "bonferroni") %>%
+  EMMEANS(effect = "PE", p.adjust = "bonferroni") %>%
+  EMMEANS(effect = "Outcome", by = "PE", p.adjust = "bonferroni")
+
+
+
+```
+```{r regression}
+
+
+# =========================
+# Overall t-test
+# =========================
+t_test <- t.test(df$var_abs_diff, mu = 0)
+d_result <- cohens_d(t_test)
+
+print(t_test)
+print(d_result)
+
+# =========================
+# One-sample t-test by Situation
+# =========================
+
+ttest_res <- df %>%
+  group_by(Situation, Situation_num) %>%
+  summarize(
+    test = list(tidy(t.test(var_abs_diff, mu = 0))),
+    .groups = "drop"
+  ) %>%
+  unnest(test) %>%
+  mutate(
+    p_adj = p.value,
+    # p_adj = p.adjust(p.value, method = "bonferroni"),
+
+    sig = case_when(
+      p_adj < 0.001 ~ "***",
+      p_adj < 0.01  ~ "**",
+      p_adj < 0.05  ~ "*",
+      p_adj < 0.10  ~ "†",
+      TRUE ~ ""
+    ),
+
+    sig_size = case_when(
+      sig == "†"   ~ sig_size_plus,
+      sig == "*"   ~ sig_size_star,
+      sig == "**"  ~ sig_size_star,
+      sig == "***" ~ sig_size_star,
+      TRUE         ~ sig_size_ns
+    ),
+    
+    sig_y_plot = sig_y + case_when(
+      sig == "†"   ~ sig_offset_plus,
+      sig == "*"   ~ sig_offset_star,
+      sig == "**"  ~ sig_offset_star,
+      sig == "***" ~ sig_offset_star,
+      TRUE         ~ sig_offset_ns
+    )
+  )
+  
+ttest_res
+
+```
+
+
+
+```{r regression}
+
+# =========================
+# Long data
+# =========================
+plot_data <- df %>%
+  select(Situation, Situation_num, high_var_abs, low_var_abs) %>%
+  pivot_longer(
+    cols = c(high_var_abs, low_var_abs),
+    names_to = "Group",
+    values_to = "Value"
+  ) %>%
+  mutate(
+    Group = recode(
+      Group,
+      high_var_abs = "High",
+      low_var_abs = "Low"
+    ),
+    Group = factor(Group, levels = c("Low", "High")),
+    x_pos = case_when(
+      Group == "Low"  ~ Situation_num - point_x_offset,
+      Group == "High" ~ Situation_num + point_x_offset
+    )
+  )
+
+# =========================
+# Regression results
+# =========================
+lm_high <- lm(high_var_abs ~ Situation_num, data = df)
+lm_low <- lm(low_var_abs ~ Situation_num, data = df)
+
+high_summary <- summary(lm_high)
+low_summary <- summary(lm_low)
+
+reg_results <- data.frame(
+  Group = c("High", "Low"),
+  Intercept = c(coef(lm_high)[1], coef(lm_low)[1]),
+  Slope = c(coef(lm_high)[2], coef(lm_low)[2]),
+  R_squared = c(high_summary$r.squared, low_summary$r.squared),
+  P_value = c(
+    coef(high_summary)["Situation_num", "Pr(>|t|)"],
+    coef(low_summary)["Situation_num", "Pr(>|t|)"]
+  )
+)
+
+summary(lm_high)
+summary(lm_low)
+reg_results
+
+# =========================
+# Mean ± SE
+# =========================
+summary_long <- plot_data %>%
+  group_by(Situation, Situation_num, Group, x_pos) %>%
+  summarize(
+    mean_value = mean(Value, na.rm = TRUE),
+    se = sd(Value, na.rm = TRUE) / sqrt(sum(!is.na(Value))),
+    .groups = "drop"
+  )
+
+summary_long
+
+```
+
+
+## fig-Allocation
+```{r}
+# =========================
+# Figure: Vertical raincloud + mean ± SE + regression
+# =========================
+
+output_path <- ".\\02_fig\\02_exp6_var_diff_PMPD_260622.svg"
+
+# Main font family.
+# Arial is usually safe for SVG/PDF/TIFF export on Windows.
+base_font <- "Arial"
+
+# Axis title size.
+title_y_size <- 120
+title_x_size <- 120
+
+# General axis text size.
+text_y_size <- 120
+text_x_size <- 110
+
+# Distance between axis tick labels and axis lines.
+text_y_margin <- 30
+text_x_margin <- 30
+
+# Distance between the y-axis title and y-axis tick labels.
+title_x_margin <- 30
+# title_x_margin <- 30 +  pt_to_mm * 10
+
+title_y_margin <- 30
+
+p <- ggplot() +
+
+  # Regression lines
+  geom_smooth(
+    data = plot_data,
+    aes(
+      x = x_pos,
+      y = Value,
+      color = Group,
+      group = Group
+    ),
+    method = "lm",
+    formula = y ~ x,
+    se = FALSE,
+    linewidth = reg_linewidth,
+    alpha = 1
+  ) +
+
+  # ---------- Outcome2: left half-eye ----------
+  stat_halfeye(
+    data = plot_data %>% filter(Group == "Low"),
+    aes(
+      x = Situation_num - point_x_offset,
+      y = Value,
+      fill = Group
+    ),
+    fill = scales::alpha(low_fill, violin_alpha),
+    slab_color = low_line,
+    slab_linewidth = violin_linewidth,
+    orientation = "vertical",
+    side = "left",
+    adjust = density_adjust,
+    trim = density_trim,
+    width = violin_width,
+    scale = scale,
+    .width = 0,
+    point_interval = NULL
+  ) +
+  # # High
+  # stat_halfeye(
+  #   data = plot_data %>% filter(Group == "High"),
+  #   aes(
+  #     x = Situation_num + point_x_offset,
+  #     y = Value,
+  #     fill = Group
+  #   ),
+  #   side = "right",
+  #   adjust = 1,
+  #   width = violin_width,
+  #   slab_alpha = violin_alpha,
+  #   .width = 0,
+  #   point_interval = NULL,
+  #   color = NA
+  # ) +
+  stat_halfeye(
+    data = plot_data %>% filter(Group == "High"),
+    aes(
+      x = Situation_num + point_x_offset,
+      y = Value,
+      fill = Group
+    ),
+    fill = scales::alpha(high_fill, violin_alpha),
+    slab_color = high_line,
+    slab_linewidth = violin_linewidth,
+    orientation = "vertical",
+    side = "right",
+    adjust = density_adjust,
+    trim = density_trim,
+    width = violin_width,
+    scale = scale,
+    .width = 0,
+    point_interval = NULL
+  ) +
+
+  # Mean ± SE
+  geom_errorbar(
+    data = summary_long,
+    aes(
+      x = x_pos,
+      ymin = mean_value - se,
+      ymax = mean_value + se,
+      color = Group
+    ),
+    width = mean_errorbar_width,
+    linewidth = mean_errorbar_linewidth
+  ) +
+  
+  # Mean diamond
+  geom_point(
+    data = summary_long,
+    aes(
+      x = x_pos,
+      y = mean_value,
+      fill = Group
+    ),
+    shape = 23,
+    size = mean_point_size,
+    color = "black",
+    stroke = 3
+  ) +
+
+  # Significance labels
+  geom_text(
+    data = ttest_res,
+    aes(
+      x = Situation_num,
+      y = sig_y_plot,
+      label = sig,
+      size = sig_size
+    ),
+    color = "black",
+    
+  ) +
+  scale_size_identity() + 
+  scale_fill_manual(
+    values = c(
+      Low = low_fill,
+      High = high_fill
+    )
+  ) +
+
+  scale_color_manual(
+    values = c(
+      Low = low_line,
+      High = high_line
+    )
+  ) +
+
+  scale_y_continuous(
+    limits = c(0, 65),
+    breaks = seq(0, 60, by = 10),
+    expand = expansion(mult = c(0.0, 0.0)),
+  ) +
+
+  scale_x_continuous(
+    breaks = c(1.2, 2.4, 3.0, 3.6, 4.8),
+    labels = situation_labels,
+    expand = expansion(mult = c(0, 0))
+  ) +
+  coord_cartesian(
+    xlim = c(0.8, 5.2),
+    clip = "off"
+  ) +
+
+  labs(
+    x = "|PE|",
+    y = "|ΔAllocation|"
+  ) +
+
+  theme_pub()
+
+save_pub(p, output_path)
+
+rm(p, summary_data)
+gc()
+
+```

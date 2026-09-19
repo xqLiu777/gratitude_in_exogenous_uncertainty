@@ -1,0 +1,1463 @@
+```{r library}
+
+library(readxl)
+library(bruceR)
+library(gridExtra)
+library(ggplot2)
+library(dplyr)
+library(gghalves)
+
+source("plot_theme.R")
+source("save_pub.R")
+
+```
+
+# directory
+```{r}
+
+data_dir <- paste0(file.path("..", "figs_data"), .Platform$file.sep)
+data_path <- paste0(data_dir, 'allexps_ascertain_data_260403.xlsx')
+data_file <- paste0(data_path)
+```
+
+# Parameter
+```{r}
+
+sig_tick_height <- 0.50
+sig_text_margin <- 0.50
+
+
+sig_text_color <- "black"
+sig_text_size <- 40
+
+sig_size <- 30
+sig_ns_size <- 40
+sig_seg_size <- 1
+
+
+sig_segment_color <- "black"
+sig_segment_linewidth <- 1
+
+raincloud_fill_palette <- c(
+  "Outcome-2" = "#9DC3E6",
+  "Outcome-8" = "#F3B082"
+)
+
+raincloud_color_palette <- c(
+  "Outcome-2" = "#4F81BD",
+  "Outcome-8" = "#D97742"
+)
+
+outcome_labels <- c(
+  "Outcome-2" = "O2",
+  "Outcome-8" = "O8"
+)
+
+
+
+# ============================================================
+# 4. Raincloud x-position parameters
+# ============================================================
+
+# Numeric x positions for the two outcome groups.
+x_outcome2 <- 1
+x_outcome8 <- 2
+
+# Points and paired lines are moved slightly inward.
+# Outcome-2: 1 + 0.2
+# Outcome-8: 2 - 0.2
+point_offset <- 0.3
+
+# Half violins are moved slightly outward relative to the points.
+# Outcome-2: 1 + 0.1
+# Outcome-8: 2 - 0.1
+cloud_offset <- 0.2
+
+# ============================================================
+# 5. Half-violin parameters
+# ============================================================
+
+cloud_alpha <- 0.20
+cloud_color <- NA
+cloud_width <- 0.90
+
+cloud_side_left <- "l"
+cloud_side_right <- "r"
+
+cloud_outline_linewidth <- 4
+
+# ============================================================
+# 6. Subject line parameters
+# ============================================================
+
+subject_line_color <- "gray20"
+subject_line_alpha <- 0.30
+subject_linewidth <- 1.00
+
+# ============================================================
+# 7. Individual point parameters
+# ============================================================
+
+rain_point_shape <- 21
+rain_point_fill <- scales::alpha("white", 0.80)
+rain_point_stroke <- 4
+rain_point_size <- 24
+rain_point_show_legend <- FALSE
+
+# ============================================================
+# 8. Mean line and mean point parameters
+# ============================================================
+
+mean_line_color <- "black"
+mean_linewidth <- 3
+
+mean_errorbar_width <- 0.05
+mean_errorbar_color <- "black"
+mean_errorbar_linewidth <- 3
+
+mean_point_shape <- 23
+mean_point_fill <- "black"
+mean_point_size <- 10
+
+
+
+```
+
+# EXP1
+## Gratitude
+```{r, fig.width = width_in_inches, fig.height = height_in_inches}
+
+exp_data <- read_excel(data_file, sheet = 'exp1_cost_grati')
+exp_data <- exp_data[exp_data$Situation == 'Uncertain', ]
+exp_data$Outcome <- factor(exp_data$Outcome, levels = c("Outcome-2", "Outcome-8"))
+# exp_data$Situation <- factor(exp_data$Situation, levels = c("Uncertain", "Certain"))
+
+sub_col <- "SubID"
+dv_col <- "var_abs"
+
+MANOVA(
+  data = exp_data,
+  subID = sub_col,
+  dv = dv_col,
+  within = c("Outcome"),
+  sph.correction = "GG"
+) %>%
+  EMMEANS(effect = "Outcome", p.adjust = "bonferroni")
+
+```
+
+
+### fig
+```{r  exp1-raincloud, fig.width=width_in_inches, fig.height=height_in_inches}
+
+
+output_path <- ".\\02_fig\\02_exp1_cost_grati_vars_260613.svg"
+
+x_title <- "Outcome"
+y_title <- "|ΔGratitude|-Cost"
+
+# ============================================================
+# 9. Significance annotation parameters
+# ============================================================
+sig_label <- "*"
+sig_y <- 29
+sig_x_start <- 1.2
+sig_x_end <- 1.8
+sig_x_center <- 1.50
+y_min <- 0
+y_max <- 30
+y_break_min <- 0
+y_break_max <- 30
+y_break_by <- 10
+
+# Lower expansion = 0 makes the plot bottom touch the x-axis.
+# Upper expansion leaves a little space for significance marks.
+y_expand_lower <- 0
+y_expand_upper <- 0.03
+
+
+# ==========================================
+# 1. 核心数据处理：精细计算“云”和“雨”的 X 坐标
+# ==========================================
+# 假设我们提取 Outcome-2 和 Outcome-8 来做对称云雨图
+# (如果你的数据里有 Outcome-5，这种背对背的设计就很难放第三个了，建议过滤掉或单独画)
+
+exp_data_raincloud <- exp_data %>%
+  mutate(
+    outcome_num = as.numeric(Outcome),
+
+    x_point = case_when(
+      Outcome == "Outcome-2" ~ outcome_num + point_offset,
+      Outcome == "Outcome-8" ~ outcome_num - point_offset
+    ),
+
+    x_cloud = case_when(
+      Outcome == "Outcome-2" ~ outcome_num + cloud_offset,
+      Outcome == "Outcome-8" ~ outcome_num - cloud_offset
+    )
+  )
+
+p <- ggplot(exp_data_raincloud, aes(y = .data[[dv_col]])) +
+
+  geom_half_violin(
+    data = exp_data_raincloud %>% filter(Outcome == "Outcome-2"),
+    aes(x = x_cloud, fill = Outcome, color = Outcome),
+    side = cloud_side_left,
+    alpha = cloud_alpha,
+    width = cloud_width,
+    linewidth = cloud_outline_linewidth
+  ) +
+
+  geom_half_violin(
+    data = exp_data_raincloud %>% filter(Outcome == "Outcome-8"),
+    aes(x = x_cloud, fill = Outcome, color = Outcome),
+    side = cloud_side_right,
+    alpha = cloud_alpha,
+    width = cloud_width,
+    linewidth = cloud_outline_linewidth
+  ) +
+
+  geom_line(
+    aes(
+      x = x_point,
+      y = .data[[dv_col]],
+      group = .data[[sub_col]]
+    ),
+    color = subject_line_color,
+    alpha = subject_line_alpha,
+    linewidth = subject_linewidth
+  ) +
+
+  geom_point(
+    aes(
+      x = x_point,
+      y = .data[[dv_col]],
+      color = Outcome
+    ),
+    shape = rain_point_shape,
+    fill = rain_point_fill,
+    stroke = rain_point_stroke,
+    size = rain_point_size,
+    show.legend = rain_point_show_legend
+  ) +
+
+  stat_summary(
+    aes(
+      x = x_point,
+      y = .data[[dv_col]],
+      group = 1
+    ),
+    fun = "mean",
+    geom = "line",
+    color = mean_line_color,
+    linewidth = mean_linewidth
+  ) +
+
+  stat_summary(
+    aes(
+      x = x_point,
+      y = .data[[dv_col]]
+    ),
+    fun.data = "mean_se",
+    geom = "errorbar",
+    width = mean_errorbar_width,
+    color = mean_errorbar_color,
+    linewidth = mean_errorbar_linewidth
+  ) +
+
+  stat_summary(
+    aes(
+      x = x_point,
+      y = .data[[dv_col]]
+    ),
+    fun = "mean",
+    geom = "point",
+    shape = mean_point_shape,
+    fill = mean_point_fill,
+    size = mean_point_size
+  ) +
+
+  annotate(
+    "segment",
+    x = sig_x_start,
+    xend = sig_x_end,
+    y = sig_y,
+    yend = sig_y,
+    color = sig_segment_color,
+    linewidth = sig_segment_linewidth
+  ) +
+
+  annotate(
+    "segment",
+    x = sig_x_start,
+    xend = sig_x_start,
+    y = sig_y,
+    yend = sig_y - sig_tick_height,
+    color = sig_segment_color,
+    linewidth = sig_segment_linewidth
+  ) +
+
+  annotate(
+    "segment",
+    x = sig_x_end,
+    xend = sig_x_end,
+    y = sig_y,
+    yend = sig_y - sig_tick_height,
+    color = sig_segment_color,
+    linewidth = sig_segment_linewidth
+  ) +
+
+  annotate(
+    "text",
+    x = sig_x_center,
+    y = sig_y + sig_text_margin,
+    label = sig_label,
+    color = sig_text_color,
+    size = sig_text_size
+  ) +
+
+  scale_x_continuous(
+    breaks = c(x_outcome2, x_outcome8),
+    labels = unname(outcome_labels)
+  ) +
+
+  scale_y_continuous(
+    limits = c(y_min, y_max),
+    breaks = seq(y_break_min, y_break_max, by = y_break_by),
+    expand = expansion(mult = c(y_expand_lower, y_expand_upper))
+  ) +
+
+  scale_fill_manual(values = raincloud_fill_palette) +
+  scale_color_manual(values = raincloud_color_palette) +
+
+  labs(
+    x = x_title,
+    y = y_title
+  ) +
+  theme_pub()
+
+save_pub(p, output_path)
+
+rm(p, summary_data)
+gc()
+
+```
+
+
+# EXP2
+## Gratitude
+```{r, fig.width = width_in_inches, fig.height = height_in_inches}
+
+exp_data <- read_excel(data_file, sheet = 'exp2_bene_grati')
+exp_data <- exp_data[exp_data$Situation == 'Uncertain', ]
+exp_data$Outcome <- factor(exp_data$Outcome, levels = c("Outcome-2", "Outcome-8"))
+# exp_data$Situation <- factor(exp_data$Situation, levels = c("Uncertain", "Certain"))
+
+MANOVA(
+  data = exp_data, 
+  subID = "SubID",                # 被试编号列名
+  dv = "var_abs",                    # 因变量列名
+  within = c("Outcome"), # 两个被试内自变量（谁在前谁在后都可以）
+  sph.correction="GG"
+) %>%
+  EMMEANS(effect = "Outcome", p.adjust = "bonferroni")
+
+```
+
+### fig
+```{r}
+
+sig1_y = 36
+sig_seg_margin = 0.5
+# ==========================================
+# 1. 核心数据处理：精细计算“云”和“雨”的 X 坐标
+# ==========================================
+# 假设我们提取 Outcome-2 和 Outcome-8 来做对称云雨图
+# (如果你的数据里有 Outcome-5，这种背对背的设计就很难放第三个了，建议过滤掉或单独画)
+
+exp_data_raincloud <- exp_data %>%
+  filter(Outcome %in% c("Outcome-2", "Outcome-8")) %>% # 筛选两组
+  mutate(
+    Out_num = as.numeric(as.factor(Outcome)),
+    
+    # 1. 给【雨和线】算坐标：让点靠在 Situation 中心的两侧
+    # Outcome-2 在左(-0.1)，Outcome-8 在右(+0.1)
+    x_point = ifelse(Outcome == "Outcome-2", Out_num + 0.2, Out_num - 0.2),
+    
+    # 2. 给【云】算坐标：让云比点稍微再往外扩一点，留出呼吸感
+    # Outcome-2 的云在更左(-0.15)，Outcome-8 的云在更右(+0.15)
+    x_cloud = ifelse(Outcome == "Outcome-2", Out_num + 0.1, Out_num - 0.1)
+  )
+
+# ==========================================
+# 2. 组装图表
+# ==========================================
+p <- ggplot(exp_data_raincloud, aes(y = var_abs)) +
+  
+# --- 1. 左侧的云 (Outcome-2) ---
+  geom_half_violin(
+    data = subset(exp_data_raincloud, Outcome == "Outcome-2"),
+    aes(x = x_cloud, fill = Outcome), # ！！！核心修复：强行按 Situation 切断云 ！！！
+    side = "l",             
+    alpha = 0.7, color = NA, width = 0.9
+  ) +
+  
+  # --- 2. 右侧的云 (Outcome-8) ---
+  geom_half_violin(
+    data = subset(exp_data_raincloud, Outcome == "Outcome-8"),
+    aes(x = x_cloud, fill = Outcome), # ！！！核心修复：强行按 Situation 切断云 ！！！
+    side = "r",             
+    alpha = 0.7, color = NA, width = 0.9
+  ) +
+  
+  # --- 3. 被试连线 (跨越中心的雨) ---
+  geom_line(
+    aes(x = x_point, y = var_abs, group = SubID), 
+    color = "gray20", 
+    alpha = 0.3, 
+    linewidth = 1
+  ) +
+  
+  # --- 4. 空心雨滴 (散点) ---
+  geom_point(
+    aes(x = x_point, color = Outcome), 
+    shape = 21, 
+    fill = alpha("white"), # 半透明白色填充
+    stroke = 2, 
+    size = 15,
+    show.legend = FALSE
+  ) +
+  
+  stat_summary(
+    aes(x = x_point, group = 1), # group = 1 是关键，告诉 R 把不同 x 的点连起来
+    fun = "mean", 
+    geom = "line", 
+    color = "black",            # 线的颜色
+    linewidth = 1.2,            # 线的粗细
+  ) +
+  
+  # --- 5. 添加均值和误差线 (可选，放在点的外侧或中心) ---
+  # 这里我们把均值误差线和点放在一起
+  stat_summary(
+    aes(x = x_point),
+    fun.data = "mean_se", 
+    geom = "errorbar", 
+    width = 0.05, 
+    color = "black", 
+    linewidth = 1.2
+  ) +
+  
+  
+  stat_summary(
+    aes(x = x_point),
+    fun = "mean", 
+    geom = "point", 
+    shape = 23, fill = "black", size = 10 # 用黑色菱形代表均值
+  ) +
+
+# --- 核心修复：坐标轴 ---
+  scale_x_continuous(
+    breaks = c(1, 2),                    # 对应 Sit_num 的 1 和 2
+    labels = c("Outcome2", "Outcome8") # 你想显示的文字
+  ) +
+  
+  geom_segment(aes(x = 1.15, xend = 1.85, y = sig1_y, yend = sig1_y), color = "black", size = sig_seg_size) +  # 显著性
+  geom_text(aes(x = 1.5, y = sig1_y + sig_seg_margin, label = "***"), color = "black", size = sig_size) +  # 显著性值
+  
+  scale_fill_manual(values = c("Outcome-2" = "#FFC340", "Outcome-8" = "#E84A3B")) +
+  scale_color_manual(values = c("Outcome-2" = "#FFC340", "Outcome-8" = "#E84A3B")) +
+  
+  
+  # scale_x_discrete(labels = c("Outcome-2" = "Outcome2", "Outcome-8" = "Outcome8")) +
+  xlab("Outcome") + 
+  ylab("|ΔGratitude|-Benefit") + 
+  theme_classic() +
+  
+  theme(
+    axis.title = element_text(size = title_size),
+    axis.text = element_text(size = text_size),
+    
+    axis.title.y = element_text(margin = margin(r = title_margin)),  # 调整y轴标题与刻度的距离
+    axis.title.x = element_text(margin = margin(t = title_margin)),  # 调整x轴标题与刻度的距离
+    axis.text.y = element_text(margin = margin(r = text_margin)),   # 调整y轴刻度与轴线的距离
+    axis.text.x = element_text(margin = margin(t = text_margin)),    # 调整x轴刻度与轴线的距离
+    axis.line = element_line(color = "black", linewidth = 2),
+    
+    legend.position = "none"
+  ) +
+  scale_y_continuous(limits = c(0, 38), breaks = seq(0, 30, by = 10))
+
+
+ggsave(".\\02_fig\\02_exp2_bene_grati_vars_260427.svg", plot = p,
+       width = width_in_inches, height = height_in_inches, units = "in")
+
+```
+
+
+
+# EXP3-Benefit
+## Gratitude
+```{r, fig.width = width_in_inches, fig.height = height_in_inches}
+
+exp_data <- read_excel(data_file, sheet = 'exp3_bene_grati')
+exp_data <- exp_data[exp_data$Situation == 'Uncertain', ]
+exp_data$Outcome <- factor(exp_data$Outcome, levels = c("Outcome-2", "Outcome-8"))
+# exp_data$Situation <- factor(exp_data$Situation, levels = c("Uncertain", "Certain"))
+
+MANOVA(
+  data = exp_data, 
+  subID = "SubID",                # 被试编号列名
+  dv = "var_abs",                    # 因变量列名
+  within = c("Outcome"), # 两个被试内自变量（谁在前谁在后都可以）
+  sph.correction="GG"
+) %>%
+  EMMEANS(effect = "Outcome", p.adjust = "bonferroni")
+
+```
+
+### fig
+```{r}
+
+sig1_y = 36
+sig_seg_margin = 0.5
+# ==========================================
+# 1. 核心数据处理：精细计算“云”和“雨”的 X 坐标
+# ==========================================
+# 假设我们提取 Outcome-2 和 Outcome-8 来做对称云雨图
+# (如果你的数据里有 Outcome-5，这种背对背的设计就很难放第三个了，建议过滤掉或单独画)
+
+exp_data_raincloud <- exp_data %>%
+  filter(Outcome %in% c("Outcome-2", "Outcome-8")) %>% # 筛选两组
+  mutate(
+    Out_num = as.numeric(as.factor(Outcome)),
+    
+    # 1. 给【雨和线】算坐标：让点靠在 Situation 中心的两侧
+    # Outcome-2 在左(-0.1)，Outcome-8 在右(+0.1)
+    x_point = ifelse(Outcome == "Outcome-2", Out_num + 0.2, Out_num - 0.2),
+    
+    # 2. 给【云】算坐标：让云比点稍微再往外扩一点，留出呼吸感
+    # Outcome-2 的云在更左(-0.15)，Outcome-8 的云在更右(+0.15)
+    x_cloud = ifelse(Outcome == "Outcome-2", Out_num + 0.1, Out_num - 0.1)
+  )
+
+# ==========================================
+# 2. 组装图表
+# ==========================================
+p <- ggplot(exp_data_raincloud, aes(y = var_abs)) +
+  
+# --- 1. 左侧的云 (Outcome-2) ---
+  geom_half_violin(
+    data = subset(exp_data_raincloud, Outcome == "Outcome-2"),
+    aes(x = x_cloud, fill = Outcome), # ！！！核心修复：强行按 Situation 切断云 ！！！
+    side = "l",             
+    alpha = 0.7, color = NA, width = 0.9
+  ) +
+  
+  # --- 2. 右侧的云 (Outcome-8) ---
+  geom_half_violin(
+    data = subset(exp_data_raincloud, Outcome == "Outcome-8"),
+    aes(x = x_cloud, fill = Outcome), # ！！！核心修复：强行按 Situation 切断云 ！！！
+    side = "r",             
+    alpha = 0.7, color = NA, width = 0.9
+  ) +
+  
+  # --- 3. 被试连线 (跨越中心的雨) ---
+  geom_line(
+    aes(x = x_point, y = var_abs, group = SubID), 
+    color = "gray20", 
+    alpha = 0.3, 
+    linewidth = 1
+  ) +
+  
+  # --- 4. 空心雨滴 (散点) ---
+  geom_point(
+    aes(x = x_point, color = Outcome), 
+    shape = 21, 
+    fill = alpha("white"), # 半透明白色填充
+    stroke = 2, 
+    size = 15,
+    show.legend = FALSE
+  ) +
+  
+  stat_summary(
+    aes(x = x_point, group = 1), # group = 1 是关键，告诉 R 把不同 x 的点连起来
+    fun = "mean", 
+    geom = "line", 
+    color = "black",            # 线的颜色
+    linewidth = 1.2,            # 线的粗细
+  ) +
+  
+  # --- 5. 添加均值和误差线 (可选，放在点的外侧或中心) ---
+  # 这里我们把均值误差线和点放在一起
+  stat_summary(
+    aes(x = x_point),
+    fun.data = "mean_se", 
+    geom = "errorbar", 
+    width = 0.05, 
+    color = "black", 
+    linewidth = 1.2
+  ) +
+  
+  
+  stat_summary(
+    aes(x = x_point),
+    fun = "mean", 
+    geom = "point", 
+    shape = 23, fill = "black", size = 10 # 用黑色菱形代表均值
+  ) +
+
+# --- 核心修复：坐标轴 ---
+  scale_x_continuous(
+    breaks = c(1, 2),                    # 对应 Sit_num 的 1 和 2
+    labels = c("Outcome2", "Outcome8") # 你想显示的文字
+  ) +
+  
+  geom_segment(aes(x = 1.15, xend = 1.85, y = sig1_y, yend = sig1_y), color = "black", size = sig_seg_size) +  # 显著性
+  geom_text(aes(x = 1.5, y = sig1_y + sig_seg_margin, label = "*"), color = "black", size = sig_size) +  # 显著性值
+  
+  scale_fill_manual(values = c("Outcome-2" = "#FFC340", "Outcome-8" = "#E84A3B")) +
+  scale_color_manual(values = c("Outcome-2" = "#FFC340", "Outcome-8" = "#E84A3B")) +
+  
+  
+  # scale_x_discrete(labels = c("Outcome-2" = "Outcome2", "Outcome-8" = "Outcome8")) +
+  xlab("Outcome") + 
+  ylab("|ΔGratitude|-Benefit") + 
+  theme_classic() +
+  
+  theme(
+    axis.title = element_text(size = title_size),
+    axis.text = element_text(size = text_size),
+    
+    axis.title.y = element_text(margin = margin(r = title_margin)),  # 调整y轴标题与刻度的距离
+    axis.title.x = element_text(margin = margin(t = title_margin)),  # 调整x轴标题与刻度的距离
+    axis.text.y = element_text(margin = margin(r = text_margin)),   # 调整y轴刻度与轴线的距离
+    axis.text.x = element_text(margin = margin(t = text_margin)),    # 调整x轴刻度与轴线的距离
+    axis.line = element_line(color = "black", linewidth = 2),
+    
+    legend.position = "none"
+  ) +
+  scale_y_continuous(limits = c(0, 38), breaks = seq(0, 30, by = 10))
+
+
+ggsave(".\\02_fig\\02_exp3_bene_grati_vars_260427.svg", plot = p,
+       width = width_in_inches, height = height_in_inches, units = "in")
+
+```
+
+
+# EXP3-Cost
+## Gratitude
+```{r, fig.width = width_in_inches, fig.height = height_in_inches}
+
+exp_data <- read_excel(data_file, sheet = 'exp3_cost_grati')
+exp_data <- exp_data[exp_data$Situation == 'Uncertain', ]
+exp_data$Outcome <- factor(exp_data$Outcome, levels = c("Outcome-2", "Outcome-8"))
+# exp_data$Situation <- factor(exp_data$Situation, levels = c("Uncertain", "Certain"))
+
+MANOVA(
+  data = exp_data, 
+  subID = "SubID",                # 被试编号列名
+  dv = "var_abs",                    # 因变量列名
+  within = c("Outcome"), # 两个被试内自变量（谁在前谁在后都可以）
+  sph.correction="GG"
+) %>%
+  EMMEANS(effect = "Outcome", p.adjust = "bonferroni")
+
+```
+### fig
+```{r}
+
+sig1_y = 36
+sig_seg_margin = 0.5
+# ==========================================
+# 1. 核心数据处理：精细计算“云”和“雨”的 X 坐标
+# ==========================================
+# 假设我们提取 Outcome-2 和 Outcome-8 来做对称云雨图
+# (如果你的数据里有 Outcome-5，这种背对背的设计就很难放第三个了，建议过滤掉或单独画)
+
+exp_data_raincloud <- exp_data %>%
+  filter(Outcome %in% c("Outcome-2", "Outcome-8")) %>% # 筛选两组
+  mutate(
+    Out_num = as.numeric(as.factor(Outcome)),
+    
+    # 1. 给【雨和线】算坐标：让点靠在 Situation 中心的两侧
+    # Outcome-2 在左(-0.1)，Outcome-8 在右(+0.1)
+    x_point = ifelse(Outcome == "Outcome-2", Out_num + 0.2, Out_num - 0.2),
+    
+    # 2. 给【云】算坐标：让云比点稍微再往外扩一点，留出呼吸感
+    # Outcome-2 的云在更左(-0.15)，Outcome-8 的云在更右(+0.15)
+    x_cloud = ifelse(Outcome == "Outcome-2", Out_num + 0.1, Out_num - 0.1)
+  )
+
+# ==========================================
+# 2. 组装图表
+# ==========================================
+p <- ggplot(exp_data_raincloud, aes(y = var_abs)) +
+  
+# --- 1. 左侧的云 (Outcome-2) ---
+  geom_half_violin(
+    data = subset(exp_data_raincloud, Outcome == "Outcome-2"),
+    aes(x = x_cloud, fill = Outcome), # ！！！核心修复：强行按 Situation 切断云 ！！！
+    side = "l",             
+    alpha = 0.7, color = NA, width = 0.9
+  ) +
+  
+  # --- 2. 右侧的云 (Outcome-8) ---
+  geom_half_violin(
+    data = subset(exp_data_raincloud, Outcome == "Outcome-8"),
+    aes(x = x_cloud, fill = Outcome), # ！！！核心修复：强行按 Situation 切断云 ！！！
+    side = "r",             
+    alpha = 0.7, color = NA, width = 0.9
+  ) +
+  
+  # --- 3. 被试连线 (跨越中心的雨) ---
+  geom_line(
+    aes(x = x_point, y = var_abs, group = SubID), 
+    color = "gray20", 
+    alpha = 0.3, 
+    linewidth = 1
+  ) +
+  
+  # --- 4. 空心雨滴 (散点) ---
+  geom_point(
+    aes(x = x_point, color = Outcome), 
+    shape = 21, 
+    fill = alpha("white"), # 半透明白色填充
+    stroke = 2, 
+    size = 15,
+    show.legend = FALSE
+  ) +
+  
+  stat_summary(
+    aes(x = x_point, group = 1), # group = 1 是关键，告诉 R 把不同 x 的点连起来
+    fun = "mean", 
+    geom = "line", 
+    color = "black",            # 线的颜色
+    linewidth = 1.2,            # 线的粗细
+  ) +
+  
+  # --- 5. 添加均值和误差线 (可选，放在点的外侧或中心) ---
+  # 这里我们把均值误差线和点放在一起
+  stat_summary(
+    aes(x = x_point),
+    fun.data = "mean_se", 
+    geom = "errorbar", 
+    width = 0.05, 
+    color = "black", 
+    linewidth = 1.2
+  ) +
+  
+  
+  stat_summary(
+    aes(x = x_point),
+    fun = "mean", 
+    geom = "point", 
+    shape = 23, fill = "black", size = 10 # 用黑色菱形代表均值
+  ) +
+
+# --- 核心修复：坐标轴 ---
+  scale_x_continuous(
+    breaks = c(1, 2),                    # 对应 Sit_num 的 1 和 2
+    labels = c("Outcome2", "Outcome8") # 你想显示的文字
+  ) +
+  
+  geom_segment(aes(x = 1.15, xend = 1.85, y = sig1_y, yend = sig1_y), color = "black", size = sig_seg_size) +  # 显著性
+  geom_text(aes(x = 1.5, y = sig1_y + sig_seg_margin, label = "**"), color = "black", size = sig_size) +  # 显著性值
+  
+  scale_fill_manual(values = c("Outcome-2" = "#FFC340", "Outcome-8" = "#E84A3B")) +
+  scale_color_manual(values = c("Outcome-2" = "#FFC340", "Outcome-8" = "#E84A3B")) +
+  
+  
+  # scale_x_discrete(labels = c("Outcome-2" = "Outcome2", "Outcome-8" = "Outcome8")) +
+  xlab("Outcome") + 
+  ylab("|ΔGratitude|-Cost") + 
+  theme_classic() +
+  
+  theme(
+    axis.title = element_text(size = title_size),
+    axis.text = element_text(size = text_size),
+    
+    axis.title.y = element_text(margin = margin(r = title_margin)),  # 调整y轴标题与刻度的距离
+    axis.title.x = element_text(margin = margin(t = title_margin)),  # 调整x轴标题与刻度的距离
+    axis.text.y = element_text(margin = margin(r = text_margin)),   # 调整y轴刻度与轴线的距离
+    axis.text.x = element_text(margin = margin(t = text_margin)),    # 调整x轴刻度与轴线的距离
+    axis.line = element_line(color = "black", linewidth = 2),
+    
+    legend.position = "none"
+  ) +
+  scale_y_continuous(limits = c(0, 38), breaks = seq(0, 30, by = 10))
+
+
+ggsave(".\\02_fig\\02_exp3_cost_grati_vars_260427.svg", plot = p,
+       width = width_in_inches, height = height_in_inches, units = "in")
+
+```
+
+# EXP4-Cost
+## Gratitude
+```{r, fig.width = width_in_inches, fig.height = height_in_inches}
+
+exp_data <- read_excel(data_file, sheet = 'exp4_cost_grati')
+exp_data <- exp_data[exp_data$Situation == 'Uncertain', ]
+exp_data$Outcome <- factor(exp_data$Outcome, levels = c("Outcome-2", "Outcome-8"))
+# exp_data$Situation <- factor(exp_data$Situation, levels = c("Uncertain", "Certain"))
+
+MANOVA(
+  data = exp_data, 
+  subID = "SubID",                # 被试编号列名
+  dv = "var_abs",                    # 因变量列名
+  within = c("Outcome"), # 两个被试内自变量（谁在前谁在后都可以）
+  sph.correction="GG"
+) %>%
+  EMMEANS(effect = "Outcome", p.adjust = "bonferroni")
+
+```
+
+### fig
+```{r}
+
+sig1_y = 65
+sig_seg_margin = 0.5
+# ==========================================
+# 1. 核心数据处理：精细计算“云”和“雨”的 X 坐标
+# ==========================================
+# 假设我们提取 Outcome-2 和 Outcome-8 来做对称云雨图
+# (如果你的数据里有 Outcome-5，这种背对背的设计就很难放第三个了，建议过滤掉或单独画)
+
+exp_data_raincloud <- exp_data %>%
+  filter(Outcome %in% c("Outcome-2", "Outcome-8")) %>% # 筛选两组
+  mutate(
+    Out_num = as.numeric(as.factor(Outcome)),
+    
+    # 1. 给【雨和线】算坐标：让点靠在 Situation 中心的两侧
+    # Outcome-2 在左(-0.1)，Outcome-8 在右(+0.1)
+    x_point = ifelse(Outcome == "Outcome-2", Out_num + 0.2, Out_num - 0.2),
+    
+    # 2. 给【云】算坐标：让云比点稍微再往外扩一点，留出呼吸感
+    # Outcome-2 的云在更左(-0.15)，Outcome-8 的云在更右(+0.15)
+    x_cloud = ifelse(Outcome == "Outcome-2", Out_num + 0.1, Out_num - 0.1)
+  )
+
+# ==========================================
+# 2. 组装图表
+# ==========================================
+p <- ggplot(exp_data_raincloud, aes(y = var_abs)) +
+  
+# --- 1. 左侧的云 (Outcome-2) ---
+  geom_half_violin(
+    data = subset(exp_data_raincloud, Outcome == "Outcome-2"),
+    aes(x = x_cloud, fill = Outcome), # ！！！核心修复：强行按 Situation 切断云 ！！！
+    side = "l",             
+    alpha = 0.7, color = NA, width = 0.9
+  ) +
+  
+  # --- 2. 右侧的云 (Outcome-8) ---
+  geom_half_violin(
+    data = subset(exp_data_raincloud, Outcome == "Outcome-8"),
+    aes(x = x_cloud, fill = Outcome), # ！！！核心修复：强行按 Situation 切断云 ！！！
+    side = "r",             
+    alpha = 0.7, color = NA, width = 0.9
+  ) +
+  
+  # --- 3. 被试连线 (跨越中心的雨) ---
+  geom_line(
+    aes(x = x_point, y = var_abs, group = SubID), 
+    color = "gray20", 
+    alpha = 0.3, 
+    linewidth = 1
+  ) +
+  
+  # --- 4. 空心雨滴 (散点) ---
+  geom_point(
+    aes(x = x_point, color = Outcome), 
+    shape = 21, 
+    fill = alpha("white"), # 半透明白色填充
+    stroke = 2, 
+    size = 15,
+    show.legend = FALSE
+  ) +
+  
+  stat_summary(
+    aes(x = x_point, group = 1), # group = 1 是关键，告诉 R 把不同 x 的点连起来
+    fun = "mean", 
+    geom = "line", 
+    color = "black",            # 线的颜色
+    linewidth = 1.2,            # 线的粗细
+  ) +
+  
+  # --- 5. 添加均值和误差线 (可选，放在点的外侧或中心) ---
+  # 这里我们把均值误差线和点放在一起
+  stat_summary(
+    aes(x = x_point),
+    fun.data = "mean_se", 
+    geom = "errorbar", 
+    width = 0.05, 
+    color = "black", 
+    linewidth = 1.2
+  ) +
+  
+  
+  stat_summary(
+    aes(x = x_point),
+    fun = "mean", 
+    geom = "point", 
+    shape = 23, fill = "black", size = 10 # 用黑色菱形代表均值
+  ) +
+
+# --- 核心修复：坐标轴 ---
+  scale_x_continuous(
+    breaks = c(1, 2),                    # 对应 Sit_num 的 1 和 2
+    labels = c("Outcome2", "Outcome8") # 你想显示的文字
+  ) +
+  
+  geom_segment(aes(x = 1.15, xend = 1.85, y = sig1_y, yend = sig1_y), color = "black", size = sig_seg_size) +  # 显著性
+  geom_text(aes(x = 1.5, y = sig1_y + sig_seg_margin, label = "***"), color = "black", size = sig_size) +  # 显著性值
+  
+  scale_fill_manual(values = c("Outcome-2" = "#FFC340", "Outcome-8" = "#E84A3B")) +
+  scale_color_manual(values = c("Outcome-2" = "#FFC340", "Outcome-8" = "#E84A3B")) +
+  
+  
+  # scale_x_discrete(labels = c("Outcome-2" = "Outcome2", "Outcome-8" = "Outcome8")) +
+  xlab("Outcome") + 
+  ylab("|ΔGratitude|-Cost") + 
+  theme_classic() +
+  
+  theme(
+    axis.title = element_text(size = title_size),
+    axis.text = element_text(size = text_size),
+    
+    axis.title.y = element_text(margin = margin(r = title_margin)),  # 调整y轴标题与刻度的距离
+    axis.title.x = element_text(margin = margin(t = title_margin)),  # 调整x轴标题与刻度的距离
+    axis.text.y = element_text(margin = margin(r = text_margin)),   # 调整y轴刻度与轴线的距离
+    axis.text.x = element_text(margin = margin(t = text_margin)),    # 调整x轴刻度与轴线的距离
+    axis.line = element_line(color = "black", linewidth = 2),
+    
+    legend.position = "none"
+  ) +
+  scale_y_continuous(limits = c(0, 68), breaks = seq(0, 60, by = 20))
+
+
+ggsave(".\\02_fig\\02_exp4_cost_grati_vars_260427.svg", plot = p,
+       width = width_in_inches, height = height_in_inches, units = "in")
+
+```
+
+
+## Allocation
+```{r, fig.width = width_in_inches, fig.height = height_in_inches}
+
+exp_data <- read_excel(data_file, sheet = 'exp4_cost_alloc')
+exp_data <- exp_data[exp_data$Situation == 'Uncertain', ]
+exp_data$Outcome <- factor(exp_data$Outcome, levels = c("Outcome-2", "Outcome-8"))
+# exp_data$Situation <- factor(exp_data$Situation, levels = c("Uncertain", "Certain"))
+
+MANOVA(
+  data = exp_data, 
+  subID = "SubID",                # 被试编号列名
+  dv = "var_abs",                    # 因变量列名
+  within = c("Outcome"), # 两个被试内自变量（谁在前谁在后都可以）
+  sph.correction="GG"
+) %>%
+  EMMEANS(effect = "Outcome", p.adjust = "bonferroni")
+
+```
+
+### fig
+```{r}
+
+sig1_y = 6.6
+sig_seg_margin = 0.1
+# ==========================================
+# 1. 核心数据处理：精细计算“云”和“雨”的 X 坐标
+# ==========================================
+# 假设我们提取 Outcome-2 和 Outcome-8 来做对称云雨图
+# (如果你的数据里有 Outcome-5，这种背对背的设计就很难放第三个了，建议过滤掉或单独画)
+
+exp_data_raincloud <- exp_data %>%
+  filter(Outcome %in% c("Outcome-2", "Outcome-8")) %>% # 筛选两组
+  mutate(
+    Out_num = as.numeric(as.factor(Outcome)),
+    
+    # 1. 给【雨和线】算坐标：让点靠在 Situation 中心的两侧
+    # Outcome-2 在左(-0.1)，Outcome-8 在右(+0.1)
+    x_point = ifelse(Outcome == "Outcome-2", Out_num + 0.2, Out_num - 0.2),
+    
+    # 2. 给【云】算坐标：让云比点稍微再往外扩一点，留出呼吸感
+    # Outcome-2 的云在更左(-0.15)，Outcome-8 的云在更右(+0.15)
+    x_cloud = ifelse(Outcome == "Outcome-2", Out_num + 0.1, Out_num - 0.1)
+  )
+
+# ==========================================
+# 2. 组装图表
+# ==========================================
+p <- ggplot(exp_data_raincloud, aes(y = var_abs)) +
+  
+# --- 1. 左侧的云 (Outcome-2) ---
+  geom_half_violin(
+    data = subset(exp_data_raincloud, Outcome == "Outcome-2"),
+    aes(x = x_cloud, fill = Outcome), # ！！！核心修复：强行按 Situation 切断云 ！！！
+    side = "l",             
+    alpha = 0.7, color = NA, width = 0.9
+  ) +
+  
+  # --- 2. 右侧的云 (Outcome-8) ---
+  geom_half_violin(
+    data = subset(exp_data_raincloud, Outcome == "Outcome-8"),
+    aes(x = x_cloud, fill = Outcome), # ！！！核心修复：强行按 Situation 切断云 ！！！
+    side = "r",             
+    alpha = 0.7, color = NA, width = 0.9
+  ) +
+  
+  # --- 3. 被试连线 (跨越中心的雨) ---
+  geom_line(
+    aes(x = x_point, y = var_abs, group = SubID), 
+    color = "gray20", 
+    alpha = 0.3, 
+    linewidth = 1
+  ) +
+  
+  # --- 4. 空心雨滴 (散点) ---
+  geom_point(
+    aes(x = x_point, color = Outcome), 
+    shape = 21, 
+    fill = alpha("white"), # 半透明白色填充
+    stroke = 2, 
+    size = 15,
+    show.legend = FALSE
+  ) +
+  
+  stat_summary(
+    aes(x = x_point, group = 1), # group = 1 是关键，告诉 R 把不同 x 的点连起来
+    fun = "mean", 
+    geom = "line", 
+    color = "black",            # 线的颜色
+    linewidth = 1.2,            # 线的粗细
+  ) +
+  
+  # --- 5. 添加均值和误差线 (可选，放在点的外侧或中心) ---
+  # 这里我们把均值误差线和点放在一起
+  stat_summary(
+    aes(x = x_point),
+    fun.data = "mean_se", 
+    geom = "errorbar", 
+    width = 0.05, 
+    color = "black", 
+    linewidth = 1.2
+  ) +
+  
+  
+  stat_summary(
+    aes(x = x_point),
+    fun = "mean", 
+    geom = "point", 
+    shape = 23, fill = "black", size = 10 # 用黑色菱形代表均值
+  ) +
+
+# --- 核心修复：坐标轴 ---
+  scale_x_continuous(
+    breaks = c(1, 2),                    # 对应 Sit_num 的 1 和 2
+    labels = c("Outcome2", "Outcome8") # 你想显示的文字
+  ) +
+  
+  geom_segment(aes(x = 1.15, xend = 1.85, y = sig1_y, yend = sig1_y), color = "black", size = sig_seg_size) +  # 显著性
+  geom_text(aes(x = 1.5, y = sig1_y + sig_seg_margin, label = "*"), color = "black", size = sig_size) +  # 显著性值
+  
+  scale_fill_manual(values = c("Outcome-2" = "#FFC340", "Outcome-8" = "#E84A3B")) +
+  scale_color_manual(values = c("Outcome-2" = "#FFC340", "Outcome-8" = "#E84A3B")) +
+  
+  
+  # scale_x_discrete(labels = c("Outcome-2" = "Outcome2", "Outcome-8" = "Outcome8")) +
+  xlab("Outcome") + 
+  ylab("|ΔAllocation|-Cost") + 
+  theme_classic() +
+  
+  theme(
+    axis.title = element_text(size = title_size),
+    axis.text = element_text(size = text_size),
+    
+    axis.title.y = element_text(margin = margin(r = title_margin + text_size * pt_to_mm)),  # 调整y轴标题与刻度的距离
+    axis.title.x = element_text(margin = margin(t = title_margin)),  # 调整x轴标题与刻度的距离
+    axis.text.y = element_text(margin = margin(r = text_margin)),   # 调整y轴刻度与轴线的距离
+    axis.text.x = element_text(margin = margin(t = text_margin)),    # 调整x轴刻度与轴线的距离
+    axis.line = element_line(color = "black", linewidth = 2),
+    
+    legend.position = "none"
+  ) +
+  scale_y_continuous(limits = c(0, 7), breaks = seq(0, 8, by = 2))
+
+
+ggsave(".\\02_fig\\02_exp4_cost_alloc_vars_260427.svg", plot = p,
+       width = width_in_inches, height = height_in_inches, units = "in")
+
+```
+
+# EXP7-Cost
+## Allocation
+```{r, fig.width = width_in_inches, fig.height = height_in_inches}
+
+exp_data <- read_excel(data_file, sheet = 'exp7_cost_alloc')
+
+exp_data <- exp_data[exp_data$Situation == 'Uncertain', ]
+exp_data$Outcome <- factor(exp_data$Outcome, levels = c("Outcome-2", "Outcome-8"))
+# exp_data$Situation <- factor(exp_data$Situation, levels = c("Uncertain", "Certain"))
+
+sub_col <- "SubID"
+dv_col <- "var_abs"
+
+MANOVA(
+  data = exp_data,
+  subID = sub_col,
+  dv = dv_col,
+  within = c("Outcome"),
+  sph.correction = "GG"
+) %>%
+  EMMEANS(effect = "Outcome", p.adjust = "bonferroni")
+
+```
+
+
+### fig
+```{r}
+
+output_path <- ".\\02_fig\\02_exp7_cost_alloc_vars_260622.svg"
+
+x_title <- "Outcome"
+y_title <- "|ΔAllocation|-Cost"
+
+# ============================================================
+# 9. Significance annotation parameters
+# ============================================================
+sig_label <- "***"
+
+sig_y <- 5
+sig_x_start <- 1.2
+sig_x_end <- 1.8
+sig_x_center <- 1.50
+
+y_min <- -0.1
+y_max <- 6
+y_break_min <- 0
+y_break_max <- 8
+y_break_by <- 2
+
+# Lower expansion = 0 makes the plot bottom touch the x-axis.
+# Upper expansion leaves a little space for significance marks.
+y_expand_lower <- 0
+y_expand_upper <- 0.03
+
+
+# ==========================================
+# 1. 核心数据处理：精细计算“云”和“雨”的 X 坐标
+# ==========================================
+# 假设我们提取 Outcome-2 和 Outcome-8 来做对称云雨图
+# (如果你的数据里有 Outcome-5，这种背对背的设计就很难放第三个了，建议过滤掉或单独画)
+
+exp_data_raincloud <- exp_data %>%
+  mutate(
+    outcome_num = as.numeric(Outcome),
+
+    x_point = case_when(
+      Outcome == "Outcome-2" ~ outcome_num + point_offset,
+      Outcome == "Outcome-8" ~ outcome_num - point_offset
+    ),
+
+    x_cloud = case_when(
+      Outcome == "Outcome-2" ~ outcome_num + cloud_offset,
+      Outcome == "Outcome-8" ~ outcome_num - cloud_offset
+    )
+  )
+
+p <- ggplot(exp_data_raincloud, aes(y = .data[[dv_col]])) +
+
+  geom_half_violin(
+    data = exp_data_raincloud %>% filter(Outcome == "Outcome-2"),
+    aes(x = x_cloud, fill = Outcome, color = Outcome),
+    side = cloud_side_left,
+    alpha = cloud_alpha,
+    width = cloud_width,
+    linewidth = cloud_outline_linewidth
+  ) +
+
+  geom_half_violin(
+    data = exp_data_raincloud %>% filter(Outcome == "Outcome-8"),
+    aes(x = x_cloud, fill = Outcome, color = Outcome),
+    side = cloud_side_right,
+    alpha = cloud_alpha,
+    width = cloud_width,
+    linewidth = cloud_outline_linewidth
+  ) +
+
+  geom_line(
+    aes(
+      x = x_point,
+      y = .data[[dv_col]],
+      group = .data[[sub_col]]
+    ),
+    color = subject_line_color,
+    alpha = subject_line_alpha,
+    linewidth = subject_linewidth
+  ) +
+
+  geom_point(
+    aes(
+      x = x_point,
+      y = .data[[dv_col]],
+      color = Outcome
+    ),
+    shape = rain_point_shape,
+    fill = rain_point_fill,
+    stroke = rain_point_stroke,
+    size = rain_point_size,
+    show.legend = rain_point_show_legend
+  ) +
+
+  stat_summary(
+    aes(
+      x = x_point,
+      y = .data[[dv_col]],
+      group = 1
+    ),
+    fun = "mean",
+    geom = "line",
+    color = mean_line_color,
+    linewidth = mean_linewidth
+  ) +
+
+  stat_summary(
+    aes(
+      x = x_point,
+      y = .data[[dv_col]]
+    ),
+    fun.data = "mean_se",
+    geom = "errorbar",
+    width = mean_errorbar_width,
+    color = mean_errorbar_color,
+    linewidth = mean_errorbar_linewidth
+  ) +
+
+  stat_summary(
+    aes(
+      x = x_point,
+      y = .data[[dv_col]]
+    ),
+    fun = "mean",
+    geom = "point",
+    shape = mean_point_shape,
+    fill = mean_point_fill,
+    size = mean_point_size
+  ) +
+
+  # annotate(
+  #   "segment",
+  #   x = sig_x_start,
+  #   xend = sig_x_end,
+  #   y = sig_y,
+  #   yend = sig_y,
+  #   color = sig_segment_color,
+  #   linewidth = sig_segment_linewidth
+  # ) +
+  # 
+  # annotate(
+  #   "segment",
+  #   x = sig_x_start,
+  #   xend = sig_x_start,
+  #   y = sig_y,
+  #   yend = sig_y - sig_tick_height,
+  #   color = sig_segment_color,
+  #   linewidth = sig_segment_linewidth
+  # ) +
+  # 
+  # annotate(
+  #   "segment",
+  #   x = sig_x_end,
+  #   xend = sig_x_end,
+  #   y = sig_y,
+  #   yend = sig_y - sig_tick_height,
+  #   color = sig_segment_color,
+  #   linewidth = sig_segment_linewidth
+  # ) +
+
+  annotate(
+    "text",
+    x = sig_x_center,
+    y = sig_y + sig_text_margin,
+    label = sig_label,
+    color = sig_text_color,
+    size = sig_text_size
+  ) +
+
+  scale_x_continuous(
+    breaks = c(x_outcome2, x_outcome8),
+    labels = unname(outcome_labels)
+  ) +
+
+  scale_y_continuous(
+    limits = c(y_min, y_max),
+    breaks = seq(y_break_min, y_break_max, by = y_break_by),
+    expand = expansion(mult = c(y_expand_lower, y_expand_upper))
+  ) +
+
+  scale_fill_manual(values = raincloud_fill_palette) +
+  scale_color_manual(values = raincloud_color_palette) +
+
+  labs(
+    x = x_title,
+    y = y_title
+  ) +
+  theme_pub()
+
+save_pub(p, output_path)
+
+rm(p, summary_data)
+gc()
+
+```
+
+## Gratitude
+```{r}
+
+exp_data <- read_excel(data_file, sheet = 'exp7_cost_grati')
+
+exp_data <- exp_data[exp_data$Situation == 'Uncertain', ]
+exp_data$Outcome <- factor(exp_data$Outcome, levels = c("Outcome-2", "Outcome-8"))
+# exp_data$Situation <- factor(exp_data$Situation, levels = c("Uncertain", "Certain"))
+
+MANOVA(
+  data = exp_data, 
+  subID = "SubID",                # 被试编号列名
+  dv = "var_abs",                    # 因变量列名
+  within = c("Outcome"), # 两个被试内自变量（谁在前谁在后都可以）
+  sph.correction="GG"
+) %>%
+  EMMEANS(effect = "Outcome", p.adjust = "bonferroni")
+
+```
+
+### fig
+```{r}
+
+sig1_y = 36
+sig_seg_margin = 0.5
+# ==========================================
+# 1. 核心数据处理：精细计算“云”和“雨”的 X 坐标
+# ==========================================
+# 假设我们提取 Outcome-2 和 Outcome-8 来做对称云雨图
+# (如果你的数据里有 Outcome-5，这种背对背的设计就很难放第三个了，建议过滤掉或单独画)
+
+exp_data_raincloud <- exp_data %>%
+  filter(Outcome %in% c("Outcome-2", "Outcome-8")) %>% # 筛选两组
+  mutate(
+    Out_num = as.numeric(as.factor(Outcome)),
+    
+    # 1. 给【雨和线】算坐标：让点靠在 Situation 中心的两侧
+    # Outcome-2 在左(-0.1)，Outcome-8 在右(+0.1)
+    x_point = ifelse(Outcome == "Outcome-2", Out_num + 0.2, Out_num - 0.2),
+    
+    # 2. 给【云】算坐标：让云比点稍微再往外扩一点，留出呼吸感
+    # Outcome-2 的云在更左(-0.15)，Outcome-8 的云在更右(+0.15)
+    x_cloud = ifelse(Outcome == "Outcome-2", Out_num + 0.1, Out_num - 0.1)
+  )
+
+# ==========================================
+# 2. 组装图表
+# ==========================================
+p <- ggplot(exp_data_raincloud, aes(y = var_abs)) +
+  
+# --- 1. 左侧的云 (Outcome-2) ---
+  geom_half_violin(
+    data = subset(exp_data_raincloud, Outcome == "Outcome-2"),
+    aes(x = x_cloud, fill = Outcome), # ！！！核心修复：强行按 Situation 切断云 ！！！
+    side = "l",             
+    alpha = 0.7, color = NA, width = 0.9
+  ) +
+  
+  # --- 2. 右侧的云 (Outcome-8) ---
+  geom_half_violin(
+    data = subset(exp_data_raincloud, Outcome == "Outcome-8"),
+    aes(x = x_cloud, fill = Outcome), # ！！！核心修复：强行按 Situation 切断云 ！！！
+    side = "r",             
+    alpha = 0.7, color = NA, width = 0.9
+  ) +
+  
+  # --- 3. 被试连线 (跨越中心的雨) ---
+  geom_line(
+    aes(x = x_point, y = var_abs, group = SubID), 
+    color = "gray20", 
+    alpha = 0.3, 
+    linewidth = 1
+  ) +
+  
+  # --- 4. 空心雨滴 (散点) ---
+  geom_point(
+    aes(x = x_point, color = Outcome), 
+    shape = 21, 
+    fill = alpha("white"), # 半透明白色填充
+    stroke = 2, 
+    size = 15,
+    show.legend = FALSE
+  ) +
+  
+  stat_summary(
+    aes(x = x_point, group = 1), # group = 1 是关键，告诉 R 把不同 x 的点连起来
+    fun = "mean", 
+    geom = "line", 
+    color = "black",            # 线的颜色
+    linewidth = 1.2,            # 线的粗细
+  ) +
+  
+  # --- 5. 添加均值和误差线 (可选，放在点的外侧或中心) ---
+  # 这里我们把均值误差线和点放在一起
+  stat_summary(
+    aes(x = x_point),
+    fun.data = "mean_se", 
+    geom = "errorbar", 
+    width = 0.05, 
+    color = "black", 
+    linewidth = 1.2
+  ) +
+  
+  
+  stat_summary(
+    aes(x = x_point),
+    fun = "mean", 
+    geom = "point", 
+    shape = 23, fill = "black", size = 10 # 用黑色菱形代表均值
+  ) +
+
+# --- 核心修复：坐标轴 ---
+  scale_x_continuous(
+    breaks = c(1, 2),                    # 对应 Sit_num 的 1 和 2
+    labels = c("Outcome2", "Outcome8") # 你想显示的文字
+  ) +
+  
+  geom_segment(aes(x = 1.15, xend = 1.85, y = sig1_y, yend = sig1_y), color = "black", size = sig_seg_size) +  # 显著性
+  geom_text(aes(x = 1.5, y = sig1_y + sig_seg_margin, label = "***"), color = "black", size = sig_size) +  # 显著性值
+  
+  scale_fill_manual(values = c("Outcome-2" = "#FFC340", "Outcome-8" = "#E84A3B")) +
+  scale_color_manual(values = c("Outcome-2" = "#FFC340", "Outcome-8" = "#E84A3B")) +
+  
+  
+  # scale_x_discrete(labels = c("Outcome-2" = "Outcome2", "Outcome-8" = "Outcome8")) +
+  xlab("Outcome") + 
+  ylab("|ΔGratitude|-Cost") + 
+  theme_classic() +
+  
+  theme(
+    axis.title = element_text(size = title_size),
+    axis.text = element_text(size = text_size),
+    
+    axis.title.y = element_text(margin = margin(r = title_margin)),  # 调整y轴标题与刻度的距离
+    axis.title.x = element_text(margin = margin(t = title_margin)),  # 调整x轴标题与刻度的距离
+    axis.text.y = element_text(margin = margin(r = text_margin)),   # 调整y轴刻度与轴线的距离
+    axis.text.x = element_text(margin = margin(t = text_margin)),    # 调整x轴刻度与轴线的距离
+    axis.line = element_line(color = "black", linewidth = 2),
+    
+    legend.position = "none"
+  ) +
+  scale_y_continuous(limits = c(0, 38), breaks = seq(0, 30, by = 10))
+
+
+ggsave(".\\02_fig\\02_exp7_cost_grati_vars_260427.svg", plot = p,
+       width = width_in_inches, height = height_in_inches, units = "in")
+
+```

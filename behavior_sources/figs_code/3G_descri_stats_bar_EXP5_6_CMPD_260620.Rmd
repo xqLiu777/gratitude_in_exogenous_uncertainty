@@ -1,0 +1,1300 @@
+```{r library}
+
+library(readxl)
+library(bruceR)
+library(patchwork)
+library(gridExtra)
+
+source("plot_theme.R")
+source("save_pub.R")
+
+```
+
+# EXP5
+## Directory
+```{r data directory}
+
+data_dir <- file.path("..", "figs_data", "EXP2-2_CMPD_condilevel_data_260121.xlsx")
+```
+
+## General Parameter
+```{r parameter}
+
+# =========================
+# Basic size parameters
+# =========================
+
+# =========================
+# Factor levels
+# =========================
+outcome_levels <- c(
+  "LowerOutcome",
+  "Uncertain",
+  "HigherOutcome"
+)
+
+situation_levels <- c(
+  "Uncertain46",
+  "Uncertain37",
+  "Uncertain28"
+)
+
+x_labels <- c(
+  "Uncertain46" = "U46",
+  "Uncertain37" = "U37",
+  "Uncertain28" = "U28"
+)
+
+# =========================
+# Bar
+# =========================
+bar_width     <- 0.8
+bar_linewidth <- 4
+bar_alpha     <- 0.95
+
+
+# =========================
+# Point
+# =========================
+point_size  <- 16
+point_alpha <- 0.3
+
+
+# =========================
+# Errorbar
+# =========================
+errorbar_width     <- 0.10
+errorbar_linewidth <- 1.45
+
+
+# =========================
+# Axis
+# =========================
+axis_linewidth <- 1.45
+tick_linewidth <- 1.15
+tick_length    <- 4.5
+
+y_min       <- 0
+y_max       <- 105
+y_break_min <- 0
+y_break_max <- 150
+y_break_by  <- 20
+
+
+# =========================
+# Legend
+# =========================
+legend_show <- TRUE
+
+legend_x <- 0.5
+legend_y <- 0.97
+
+legend_size <- 50
+
+legend_key_width <- 2.4
+
+legend_text_margin_r <- 40
+legend_text_margin_l <- 10
+
+
+# =========================
+# Significance parameters
+# =========================
+sig_y_low  <- 98
+sig_y_mid  <- 98
+sig_y_high <- 102
+
+sig_height   <- 1
+sig_margin   <- 0.6
+sig_interval <- 0.02
+
+sig_linewidth <- 1.25
+sig_size_star <- 18
+sig_size_ns   <- 14
+
+sig_color <- "black"
+
+
+
+# color_platte <- c("#F2C879","#E59A5B","#C95F54")
+# color_platte <- c("#6BAED6", "#BDBDBD", "#E76F51")
+# color_platte <- c("#56B4E9", "#999999", "#D55E00")
+# color_platte <- c("#8FBBD9", "#B8B2A6", "#D98C7A")
+# color_platte <- c("#F4CB78", "#E99B62", "#CF7164")
+
+fill_platte  <- c("#9DC3E6", "#A8CF8C", "#F3B082")
+color_platte <- c("#4F81BD", "#5D9C59", "#D97742")
+# c("#F6C65B", "#E89B4F", "#D95F59")
+# c("#6BAED6", "#BDBDBD", "#E76F51")
+# c("#56B4E9", "#999999", "#D55E00")
+# c("#8FBBD9", "#B8B2A6", "#D98C7A")
+# c("#88C999", "#D6C36A", "#D96B5F")
+# c("#5AB4AC", "#D8B365", "#C75D5D")
+# c("#B8B4D9", "#8F8BC2", "#5651A6")
+# c("#BFD7EA", "#6FA8DC", "#2F5D8C")
+# c("#F7D08A", "#F29E4C", "#C8553D")
+# c("#D9D9D9", "#F2B8A0", "#C94C4C")
+
+dodge_width <- 0.9
+
+```
+
+
+
+
+
+## Allocation
+```{r EXP3_PMPD Allocation}
+# 读取 Excel 文件
+data <- read_excel(data_dir, sheet = 'Allocation')
+
+
+#### 提取risky下三个情境的Gratitude/Allocation
+exp_data <- data[data$Outcome == 'HigherOutcome',]
+
+tmp_data <- data[data$Outcome == 'LowerOutcome',]
+exp_data <- rbind(exp_data, tmp_data)
+
+tmp_data <- data[data$Outcome == 'Uncertain',]
+exp_data <- rbind(exp_data, tmp_data)
+####
+
+### one-factor ANOVA
+print('【Exp3】')
+
+# 使用tapply计算平均值和标准差 
+means <- tapply(exp_data$Value, list(exp_data$Outcome, exp_data$Situation), mean)
+std_devs <- tapply(exp_data$Value, list(exp_data$Outcome, exp_data$Situation), sd)
+cat("Means:", means, '\n')
+cat("Standard Deviations:", std_devs, '\n')
+
+```
+
+```{r}
+# 执行单因素方差分析
+MANOVA(
+  exp_data, dv = "Value", subID = "SubID", within = c("Outcome","Situation"), sph.correction = 'GG') %>%
+  EMMEANS(effect = "Outcome", p.adjust = "bonferroni") %>%
+  EMMEANS(effect = "Situation", p.adjust = "bonferroni") %>%
+  EMMEANS(effect = "Outcome", by = "Situation",, p.adjust = "bonferroni")
+
+
+```
+
+### fig-Allocation
+```{r, echo=TRUE}
+
+output_path <- ".\\02_fig\\01_exp5_descri_stats_bar_CMPD_260613.svg"
+
+
+
+# =========================
+# Data process
+# =========================
+exp_data <- exp_data %>%
+  mutate(
+    Outcome = factor(
+      Outcome,
+      levels = outcome_levels
+    ),
+    Situation = factor(
+      Situation,
+      levels = situation_levels
+    )
+  )
+
+summary_data <- exp_data %>%
+  group_by(Outcome, Situation) %>%
+  summarize(
+    mean_value = mean(Value, na.rm = TRUE),
+    se = sd(Value, na.rm = TRUE) / sqrt(sum(!is.na(Value))),
+    .groups = "drop"
+  ) %>%
+  mutate(exp = "mean")
+
+
+# =========================
+# Plot
+# =========================
+p <- ggplot() +
+  
+  geom_bar(
+    data = summary_data,
+    stat = "identity",
+    aes(
+      x = Situation,
+      y = mean_value,
+      color = Outcome
+    ),
+    width = bar_width,
+    alpha = bar_alpha,
+    fill = NA,
+    linewidth = bar_linewidth,
+    position = position_dodge(width = dodge_width)
+  ) +
+  
+  geom_point(
+    data = exp_data,
+    aes(
+      x = Situation,
+      y = Value,
+      color = Outcome,
+      group = Outcome
+    ),
+    size = point_size,
+    alpha = point_alpha,
+    position = position_dodge(width = dodge_width),
+    show.legend = FALSE
+  ) +
+  
+  geom_errorbar(
+    data = summary_data,
+    aes(
+      x = Situation,
+      group = Outcome,
+      ymin = mean_value - se,
+      ymax = mean_value + se
+    ),
+    width = errorbar_width,
+    position = position_dodge(width = dodge_width),
+    linewidth = errorbar_linewidth
+  ) +
+  
+  scale_fill_manual(values = fill_platte) +
+  scale_color_manual(values = color_platte) +
+  
+  scale_y_continuous(
+    limits = c(y_min, y_max),
+    expand = expansion(mult = c(0.0, 0.0)),
+    breaks = seq(
+      y_break_min,
+      y_break_max,
+      by = y_break_by
+    )
+  ) +
+  
+  scale_x_discrete(
+    labels = x_labels
+  ) +
+  
+  xlab("Situation") +
+  ylab("Allocation") +
+  
+  theme_pub()
+
+save_pub(p, output_path)
+
+rm(p, summary_data)
+gc()
+
+
+```
+
+# EXP6-0622
+```{r}
+
+data_dir <- file.path("..", "figs_data", "EXP6_PMPD_condilevel_data_260622.xlsx")
+# Allocation
+
+# 读取 Excel 文件
+data <- read_excel(data_dir, sheet = 'Allocation')
+
+
+#### 提取risky下三个情境的Gratitude/Allocation
+exp_data <- data[data$Cost == 'Cost-8',]
+
+tmp_data <- data[data$Cost == 'Cost-2',]
+exp_data <- rbind(exp_data, tmp_data)
+
+tmp_data <- data[data$Cost == 'Uncertain/Cost-5',]
+exp_data <- rbind(exp_data, tmp_data)
+####
+
+### one-factor ANOVA
+print('【Exp3】')
+
+# 使用tapply计算平均值和标准差 
+means <- tapply(exp_data$Value, list(exp_data$Cost, exp_data$Situation), mean)
+std_devs <- tapply(exp_data$Value, list(exp_data$Cost, exp_data$Situation), sd)
+cat("Means:", means, '\n')
+cat("Standard Deviations:", std_devs, '\n')
+
+```
+
+```{r}
+
+# 执行单因素方差分析
+MANOVA(
+  exp_data, dv = "Value", subID = "SubID", within = c("Cost","Situation"), sph.correction = 'GG') %>%
+  EMMEANS(effect = "Cost", p.adjust = "bonferroni") %>%
+  EMMEANS(effect = "Situation", p.adjust = "bonferroni") %>%
+  EMMEANS(effect = "Cost", by = "Situation",, p.adjust = "bonferroni")
+
+
+```
+
+## Allocation fig
+```{r, echo=TRUE}
+
+# =========================
+# Bar
+# =========================
+bar_width     <- 0.7
+bar_linewidth <- 4
+bar_alpha     <- 0.95
+
+
+# =========================
+# Point
+# =========================
+point_size  <- 6
+point_alpha <- 0.3
+
+
+# =========================
+# Errorbar
+# =========================
+errorbar_width     <- 0.10
+errorbar_linewidth <- 1.45
+
+
+# =========================
+# Axis
+# =========================
+axis_linewidth <- 1.2
+tick_linewidth <- 1.2
+tick_length    <- 6
+
+y_min       <- 0
+y_max       <- 105
+y_break_min <- 0
+y_break_max <- 150
+y_break_by  <- 20
+
+
+# Main font family.
+# Arial is usually safe for SVG/PDF/TIFF export on Windows.
+base_font <- "Arial"
+
+# Axis title size.
+title_y_size <- 120
+title_x_size <- 120
+
+# General axis text size.
+text_y_size <- 120
+text_x_size <- 110
+
+# Distance between axis tick labels and axis lines.
+text_y_margin <- 30
+text_x_margin <- 30
+
+# Distance between the y-axis title and y-axis tick labels.
+title_x_margin <- 30
+# title_x_margin <- 30 +  pt_to_mm * 10
+
+title_y_margin <- 30
+
+# 
+# fill_platte <- c(
+#   "Cost-2" = "#DCEAF7",
+#   "Uncertain/Cost-5" = "#F6E5D6",
+#   "Cost-8" = "#F8D9D0"
+# )
+
+fill_platte <- c(
+  "Cost-2" = scales::alpha("#9DC3E6", 1),
+  "Uncertain/Cost-5" = scales::alpha("#A8CF8C", 1),
+  "Cost-8" = scales::alpha("#F3B082", 1)
+)
+
+output_path <- ".\\02_fig\\01_exp6_descri_stats_bar_PMPD_260622.svg"
+
+exp_data$Cost <- factor(exp_data$Cost, levels = c("Cost-2", "Uncertain/Cost-5", "Cost-8"))
+
+# 计算每组的平均值和标准误差
+summary_data <- exp_data %>%
+  group_by(Cost, Situation) %>%
+  summarize(mean_value = mean(Value,,na.rm=T), se = sd(Value) / sqrt(length(Value)))
+
+summary_data$exp <- 'mean'
+
+# 只提取 Certain 条件的三根柱子
+summary_data_fill <- summary_data %>%
+  filter(Situation == "1")
+
+# cost2_mean <- as.double(summary_data[summary_data$Cost == "Cost-2" , "mean_value"][1])
+# cost28_mean <- as.double(summary_data[summary_data$Cost == "Uncertain", "mean_value"][1])
+# cost8_mean <- as.double(summary_data[summary_data$Cost == "Cost-8", "mean_value"][1])
+
+sig1_y <- 88
+sig2_y <- 95
+sig3_y <- 105
+sig_seg_margin <- 1.5
+
+p <- ggplot()+
+  
+  # 1. 只给 Certain 的三根柱子加浅色填充
+  geom_bar(
+    data = summary_data_fill,
+    stat = "identity",
+    aes(
+      x = Situation,
+      y = mean_value,
+      fill = Cost,
+      group = Cost
+    ),
+    width = bar_width,
+    alpha = 0.2,
+    color = NA,
+    position = position_dodge(width = dodge_width)
+  ) +
+  
+  # 2. 所有柱子都画粗边框，保持空心
+  geom_bar(
+    data = summary_data,
+    stat = "identity",
+    aes(
+      x = Situation,
+      y = mean_value,
+      color = Cost,
+      group = Cost
+    ),
+    width = bar_width,
+    alpha = bar_alpha,
+    fill = NA,
+    linewidth = bar_linewidth,
+    position = position_dodge(width = dodge_width)
+  ) +
+  
+  geom_point(
+    data = exp_data,
+    aes(
+      x = Situation,
+      y = Value,
+      color = Cost,
+      group = Cost
+    ),
+    size = point_size,
+    alpha = point_alpha,
+    position = position_dodge(width = dodge_width),
+    show.legend = FALSE
+  ) +
+  
+  geom_errorbar(
+    data = summary_data,
+    aes(
+      x = Situation,
+      group = Cost,
+      ymin = mean_value - se,
+      ymax = mean_value + se
+    ),
+    width = errorbar_width,
+    position = position_dodge(width = dodge_width),
+    linewidth = errorbar_linewidth
+  ) +
+  
+  scale_fill_manual(values = fill_platte) +
+  scale_color_manual(values = color_platte) +
+  
+  scale_y_continuous(
+    limits = c(y_min, y_max),
+    expand = expansion(mult = c(0.0, 0.0)),
+    breaks = seq(
+      y_break_min,
+      y_break_max,
+      by = y_break_by
+    )
+  ) +
+  
+  scale_x_discrete(
+                   labels = c("1" = "Certain"),
+                   limits = c("20%8", "40%8", "50%8", "60%8", "80%8", "1"))  +
+  
+  xlab("Situation") +
+  ylab("Allocation") +
+  
+  theme_pub()
+
+save_pub(p, output_path)
+
+rm(p, summary_data)
+gc()
+
+
+```
+# EXP3-Benefit-Cost
+```{r EXP3_PMPD Allocation}
+# 读取 Excel 文件
+data_dir <- file.path("..", "figs_data", "02_cmf_long_data_260402.xlsx")
+data <- read_excel(data_dir, sheet = 'exp3_bc_Grati')
+
+outcome_levels <- c(
+  "Outcome2",
+  "Uncertain",
+  "Outcome8"
+)
+
+situation_levels <- c(
+  "Cost",
+  "Benefit"
+)
+
+x_labels <- c(
+  "Outcome2"  = "Outcome2",
+  "Uncertain" = "Uncertain",
+  "Outcome8"  = "Outcome8"
+)
+
+
+
+#### 提取risky下三个情境的Gratitude/Allocation
+exp_data <- data[data$Outcome == 'Outcome8',]
+
+tmp_data <- data[data$Outcome == 'Outcome2',]
+exp_data <- rbind(exp_data, tmp_data)
+
+tmp_data <- data[data$Outcome == 'Uncertain',]
+exp_data <- rbind(exp_data, tmp_data)
+####
+
+### one-factor ANOVA
+print('【Exp3】')
+
+# 使用tapply计算平均值和标准差 
+means <- tapply(exp_data$Value, list(exp_data$Outcome, exp_data$Situation), mean)
+std_devs <- tapply(exp_data$Value, list(exp_data$Outcome, exp_data$Situation), sd)
+cat("Means:", means, '\n')
+cat("Standard Deviations:", std_devs, '\n')
+
+```
+
+```{r}
+# 执行单因素方差分析
+MANOVA(
+  exp_data, dv = "Value", subID = "SubID", within = c("Outcome","Situation"), sph.correction = 'GG') %>%
+  EMMEANS(effect = "Outcome", p.adjust = "bonferroni") %>%
+  EMMEANS(effect = "Situation", p.adjust = "bonferroni") %>%
+  EMMEANS(effect = "Outcome", by = "Situation",, p.adjust = "bonferroni")
+
+
+```
+
+## fig-Allocation
+```{r, echo=TRUE}
+
+save_path <- ".\\02_fig\\03_descri_stats_bar_EXP3_RGB_260607.svg"
+
+sig_y_low  <- 104
+sig_y_mid  <- 104
+sig_y_high <- 108
+
+y_min       <- 0
+y_max       <- 115
+y_break_min <- 0
+y_break_max <- 115
+y_break_by  <- 20
+
+# =========================
+# Data process
+# =========================
+exp_data <- exp_data %>%
+  mutate(
+    Outcome = factor(
+      Outcome,
+      levels = outcome_levels
+    ),
+    Situation = factor(
+      Situation,
+      levels = situation_levels
+    )
+  )
+
+summary_data <- exp_data %>%
+  group_by(Outcome, Situation) %>%
+  summarize(
+    mean_value = mean(Value, na.rm = TRUE),
+    se = sd(Value, na.rm = TRUE) / sqrt(sum(!is.na(Value))),
+    .groups = "drop"
+  ) %>%
+  mutate(exp = "mean")
+
+
+# =========================
+# Significance helper function
+# =========================
+add_sig_bracket <- function(
+    x_left,
+    x_right,
+    y,
+    label,
+    text_size = sig_size_star
+) {
+  
+  list(
+    annotate(
+      "segment",
+      x = x_left,
+      xend = x_right,
+      y = y,
+      yend = y,
+      color = sig_color,
+      linewidth = sig_linewidth
+    ),
+    
+    annotate(
+      "segment",
+      x = x_left,
+      xend = x_left,
+      y = y,
+      yend = y - sig_height,
+      color = sig_color,
+      linewidth = sig_linewidth
+    ),
+    
+    annotate(
+      "segment",
+      x = x_right,
+      xend = x_right,
+      y = y,
+      yend = y - sig_height,
+      color = sig_color,
+      linewidth = sig_linewidth
+    ),
+    
+    annotate(
+      "text",
+      x = (x_left + x_right) / 2,
+      y = y + sig_margin,
+      label = label,
+      color = sig_color,
+      size = text_size
+    )
+  )
+}
+
+# =========================
+# Significance data
+# =========================
+sig_df <- data.frame(
+  situation_x = c(
+    1, 1,
+    2, 2
+  ),
+  
+  comparison = c(
+    "right", "whole",
+    "right", "whole"
+  ),
+  
+  label = c(
+    "***", "***",
+    "***", "***"
+  ),
+  
+  y = c(
+    sig_y_mid, sig_y_high,
+    sig_y_mid, sig_y_high
+  )
+)
+
+# =========================
+# Significance layers
+# =========================
+sig_layers <- list()
+
+for (i in seq_len(nrow(sig_df))) {
+  
+  x0 <- sig_df$situation_x[i]
+  comp <- sig_df$comparison[i]
+  
+  if (comp == "left") {
+    x_left  <- x0 - dodge_width / 3 + sig_interval
+    x_right <- x0 - sig_interval
+  } else if (comp == "right") {
+    x_left  <- x0 + sig_interval
+    x_right <- x0 + dodge_width / 3 - sig_interval
+  } else if (comp == "whole") {
+    x_left  <- x0 - dodge_width / 3 + sig_interval
+    x_right <- x0 + dodge_width / 3 - sig_interval
+  }
+  
+  sig_layers <- append(
+    sig_layers,
+    add_sig_bracket(
+      x_left = x_left,
+      x_right = x_right,
+      y = sig_df$y[i],
+      label = sig_df$label[i]
+    )
+  )
+}
+
+
+# =========================
+# Plot
+# =========================
+p2 <- ggplot() +
+  
+  geom_bar(
+    data = summary_data,
+    stat = "identity",
+    aes(
+      x = Situation,
+      y = mean_value,
+      color = Outcome
+    ),
+    width = bar_width,
+    alpha = bar_alpha,
+    fill = NA,
+    linewidth = bar_linewidth,
+    position = position_dodge(width = dodge_width)
+  ) +
+  
+  geom_point(
+    data = exp_data,
+    aes(
+      x = Situation,
+      y = Value,
+      color = Outcome,
+      group = Outcome
+    ),
+    size = point_size,
+    alpha = point_alpha,
+    position = position_dodge(width = dodge_width),
+    show.legend = FALSE
+  ) +
+  
+  geom_errorbar(
+    data = summary_data,
+    aes(
+      x = Situation,
+      group = Outcome,
+      ymin = mean_value - se,
+      ymax = mean_value + se
+    ),
+    width = errorbar_width,
+    position = position_dodge(width = dodge_width),
+    linewidth = errorbar_linewidth
+  ) +
+  
+  scale_fill_manual(values = fill_platte) +
+  scale_color_manual(values = color_platte) +
+  
+  scale_y_continuous(
+    limits = c(y_min, y_max),
+    breaks = seq(
+      y_break_min,
+      y_break_max,
+      by = y_break_by
+    )
+  ) +
+  
+  scale_x_discrete(
+    labels = x_labels
+  ) +
+  
+  xlab("Situation") +
+  ylab("Gratitude") +
+  
+  theme_classic(base_family = "Arial") +
+  
+  theme(
+    legend.position = if (legend_show) c(legend_x, legend_y) else "none",
+    legend.direction = "horizontal",
+    legend.key.width = unit(legend_key_width, "cm"),
+    legend.title = element_blank(),
+    legend.text = element_text(
+      size = legend_size,
+      margin = margin(
+        r = legend_text_margin_r,
+        l = legend_text_margin_l
+      )
+    ),
+    
+    axis.title = element_text(
+      size = title_size,
+      color = "black"
+    ),
+    
+    axis.text = element_text(
+      size = text_size,
+      color = "black"
+    ),
+    
+    axis.title.y = element_text(
+      margin = margin(r = title_margin)
+    ),
+    
+    axis.title.x = element_text(
+      margin = margin(t = title_margin)
+    ),
+    
+    axis.text.y = element_text(
+      margin = margin(r = text_margin)
+    ),
+    
+    axis.text.x = element_text(
+      margin = margin(t = text_margin),
+      size = text_x_size
+    ),
+    
+    axis.line = element_line(
+      color = "black",
+      linewidth = axis_linewidth
+    ),
+    
+    axis.ticks = element_line(
+      color = "black",
+      linewidth = tick_linewidth
+    ),
+    
+    axis.ticks.length = unit(tick_length, "mm"),
+    
+    plot.margin = margin(
+      plot_margin_top,
+      plot_margin_right,
+      plot_margin_bottom,
+      plot_margin_left
+    )
+  ) +
+  
+  sig_layers
+
+
+# =========================
+# Save
+# =========================
+ggsave(
+  filename = save_path,
+  plot = p2,
+  width = width_in_inches,
+  height = height_in_inches,
+  units = "in"
+)
+
+
+```
+
+# Gratitude
+```{r EXP3_PMPD Allocation}
+# 读取 Excel 文件
+data <- read_excel(data_dir, sheet = 'Gratitude')
+
+
+#### 提取risky下三个情境的Gratitude/Allocation
+exp_data <- data[data$Outcome == 'HigherOutcome',]
+
+tmp_data <- data[data$Outcome == 'LowerOutcome',]
+exp_data <- rbind(exp_data, tmp_data)
+
+tmp_data <- data[data$Outcome == 'Uncertain',]
+exp_data <- rbind(exp_data, tmp_data)
+####
+
+### one-factor ANOVA
+print('【Exp3】')
+
+# 使用tapply计算平均值和标准差 
+means <- tapply(exp_data$Value, list(exp_data$Outcome, exp_data$Situation), mean)
+std_devs <- tapply(exp_data$Value, list(exp_data$Outcome, exp_data$Situation), sd)
+cat("Means:", means, '\n')
+cat("Standard Deviations:", std_devs, '\n')
+
+```
+
+```{r}
+# 执行单因素方差分析
+MANOVA(
+  exp_data, dv = "Value", subID = "SubID", within = c("Outcome","Situation"), sph.correction = 'GG') %>%
+  EMMEANS(effect = "Outcome", p.adjust = "bonferroni") %>%
+  EMMEANS(effect = "Situation", p.adjust = "bonferroni") %>%
+  EMMEANS(effect = "Outcome", by = "Situation",, p.adjust = "bonferroni")
+
+
+```
+
+## fig-Gratitude
+```{r, echo=TRUE}
+
+exp_data$Outcome <- factor(exp_data$Outcome, levels = c("LowerOutcome", "Uncertain", "HigherOutcome"))
+exp_data$Situation <- factor(exp_data$Situation, levels = c("Uncertain46", "Uncertain37", "Uncertain28"))
+
+# 计算每组的平均值和标准误差
+summary_data <- exp_data %>%
+  group_by(Outcome, Situation) %>%
+  summarize(mean_value = mean(Value,na.rm=T), se = sd(Value) / sqrt(length(Value)))
+
+summary_data$exp <- 'mean'
+
+sig1_y <- 85
+sig2_y <- 85
+sig3_y <- 89
+sig_seg_margin <- 0.6
+sig_interval <- 0.02
+sig_height <- 1
+
+p2 <- ggplot()+
+  # 绘制条形图和标准误差
+  geom_bar(data = summary_data, stat = "identity", aes(x = Situation, y = mean_value, fill = Outcome), 
+           width = bar_width,  position = position_dodge()) +
+
+  scale_fill_manual(values = c("#FFD06F", "#EF8A47", "#E76254")) +
+
+
+  geom_errorbar(data = summary_data, aes(x = Situation, group = Outcome, ymin = mean_value - se, ymax = mean_value + se),
+               width = 0.3,  # 调整errorbar的宽度
+               position = position_dodge(0.8), size = 1.5) +  # 与条形图对齐
+
+  xlab("Situation") + #横坐标名称
+  ylab("Gratitude") + #纵坐标名称
+  theme_classic() +  #去掉背景灰色
+  theme(
+    axis.title.x = element_text(size = title_x_size, margin = margin(t = title_margin)),
+    axis.text.x = element_text(size = text_x_size, margin = margin(t = text_margin)),
+    axis.title.y = element_text(size = title_y_size, margin = margin(r = title_margin)),
+    axis.text.y = element_text(size = text_y_size,margin = margin(r = text_margin)),
+    axis.line = element_line(color = "black", linewidth = 2)) +
+  # guides(
+  #   fill = guide_legend(
+  #     keywidth = unit(2, "cm"),
+  #     title = NULL)
+  # ) +
+  theme(
+    legend.position = c(0.5, 0.95),  # (x=0~1, y=0~1) 从左下角为 (0,0),
+    legend.direction = "horizontal",
+#     legend.spacing.x = unit(0.8, "cm"),
+    legend.key.width = unit(2.4, "cm"),
+    legend.title = element_blank(),
+    legend.text  = element_text(size = legend_size, margin = margin(r = 40,l = 10))
+  ) +
+
+  scale_y_continuous(limits = c(0, 100), breaks = seq(0, 90, by = 20)) +
+  # scale_x_discrete(labels = c("1" = "100%")) +
+  
+##########################################################################################
+  geom_segment(aes(x = 1 - bar_width/3 + sig_interval, xend = 1 - sig_interval, y = sig1_y, yend = sig1_y), 
+               color = "black", size = sig_seg_size) +  # 显著性
+  geom_segment(aes(x = 1 - bar_width/3 + sig_interval, xend = 1 - bar_width/3 + sig_interval, 
+                   y = sig1_y, yend = sig1_y - sig_height), 
+               color = "black", size = sig_seg_size) +  # 显著性
+  geom_segment(aes(x = 1 - sig_interval, xend = 1 - sig_interval, 
+                   y = sig1_y, yend = sig1_y - sig_height), 
+               color = "black", size = sig_seg_size) +  # 显著性
+  
+  geom_text(aes(x = 1 - bar_width/6, y = sig1_y + sig_seg_margin, label = "***"), 
+            color = "black", size = sig_size) +  # 显著性值
+  
+  geom_segment(aes(x = 1 + sig_interval, xend = 1 + bar_width/3 - sig_interval, y = sig2_y, yend = sig2_y),
+               color = "black", size = sig_seg_size) +  # 显著性
+  geom_segment(aes(x = 1 + sig_interval, xend = 1 + sig_interval, 
+                   y = sig1_y, yend = sig2_y - sig_height), 
+               color = "black", size = sig_seg_size) +  # 显著性
+  geom_segment(aes(x = 1 + bar_width/3 - sig_interval, xend = 1 + bar_width/3 - sig_interval, 
+                   y = sig1_y, yend = sig2_y - sig_height), 
+               color = "black", size = sig_seg_size) +  # 显著性
+  
+  geom_text(aes(x = 1 + bar_width/6, y = sig2_y + sig_seg_margin, label = "***"),
+            color = "black", size = sig_size) + # 显著性值
+  
+  geom_segment(aes(x = 1 - bar_width/3 + sig_interval, xend = 1 + bar_width/3 - sig_interval, y = sig3_y, yend = sig3_y),
+               color = "black", size = sig_seg_size) +  # 显著性
+  geom_segment(aes(x = 1 - bar_width/3 + sig_interval, xend = 1 - bar_width/3 + sig_interval, 
+                   y = sig3_y, yend = sig3_y - sig_height), 
+               color = "black", size = sig_seg_size) +  # 显著性
+  geom_segment(aes(x = 1 + bar_width/3 - sig_interval, xend = 1 + bar_width/3 - sig_interval, 
+                   y = sig3_y, yend = sig3_y - sig_height), 
+               color = "black", size = sig_seg_size) +  # 显著性
+  geom_text(aes(x = 1, y = sig3_y + sig_seg_margin, label = "***"),
+            color = "black", size = sig_size) + # 显著性值
+
+##########################################################################################
+
+  geom_segment(aes(x = 2 - bar_width/3 + sig_interval, xend = 2 - sig_interval, y = sig1_y, yend = sig1_y), 
+               color = "black", size = sig_seg_size) +  # 显著性
+  geom_segment(aes(x = 2 - bar_width/3 + sig_interval, xend = 2 - bar_width/3 + sig_interval, 
+                   y = sig1_y, yend = sig1_y - sig_height), 
+               color = "black", size = sig_seg_size) +  # 显著性
+  geom_segment(aes(x = 2 - sig_interval, xend = 2 - sig_interval, 
+                   y = sig1_y, yend = sig1_y - sig_height), 
+               color = "black", size = sig_seg_size) +  # 显著性
+  
+  geom_text(aes(x = 2 - bar_width/6, y = sig1_y + sig_seg_margin, label = "***"), 
+            color = "black", size = sig_size) +  # 显著性值
+  
+  geom_segment(aes(x = 2 + sig_interval, xend = 2 + bar_width/3 - sig_interval, y = sig2_y, yend = sig2_y),
+               color = "black", size = sig_seg_size) +  # 显著性
+  geom_segment(aes(x = 2 + sig_interval, xend = 2 + sig_interval, 
+                   y = sig1_y, yend = sig2_y - sig_height), 
+               color = "black", size = sig_seg_size) +  # 显著性
+  geom_segment(aes(x = 2 + bar_width/3 - sig_interval, xend = 2 + bar_width/3 - sig_interval, 
+                   y = sig1_y, yend = sig2_y - sig_height), 
+               color = "black", size = sig_seg_size) +  # 显著性
+  
+  geom_text(aes(x = 2 + bar_width/6, y = sig2_y + sig_seg_margin, label = "***"),
+            color = "black", size = sig_size) + # 显著性值
+  geom_segment(aes(x = 2 - bar_width/3 + sig_interval, xend = 2 + bar_width/3 - sig_interval, y = sig3_y, yend = sig3_y),
+               color = "black", size = sig_seg_size) +  # 显著性
+  geom_segment(aes(x = 2 - bar_width/3 + sig_interval, xend = 2 - bar_width/3 + sig_interval, 
+                   y = sig3_y, yend = sig3_y - sig_height), 
+               color = "black", size = sig_seg_size) +  # 显著性
+  geom_segment(aes(x = 2 + bar_width/3 - sig_interval, xend = 2 + bar_width/3 - sig_interval, 
+                   y = sig3_y, yend = sig3_y - sig_height), 
+               color = "black", size = sig_seg_size) +  # 显著性
+  geom_text(aes(x = 2, y = sig3_y + sig_seg_margin, label = "***"),
+            color = "black", size = sig_size) + # 显著性值
+##########################################################################################
+
+  geom_segment(aes(x = 3 - bar_width/3 + sig_interval, xend = 3 - sig_interval, y = sig1_y, yend = sig1_y), 
+               color = "black", size = sig_seg_size) +  # 显著性
+  geom_segment(aes(x = 3 - bar_width/3 + sig_interval, xend = 3 - bar_width/3 + sig_interval, 
+                   y = sig1_y, yend = sig1_y - sig_height), 
+               color = "black", size = sig_seg_size) +  # 显著性
+  geom_segment(aes(x = 3 - sig_interval, xend = 3 - sig_interval, 
+                   y = sig1_y, yend = sig1_y - sig_height), 
+               color = "black", size = sig_seg_size) +  # 显著性
+  
+  geom_text(aes(x = 3 - bar_width/6, y = sig1_y + sig_seg_margin, label = "***"), 
+            color = "black", size = sig_size) +  # 显著性值
+  
+  geom_segment(aes(x = 3 + sig_interval, xend = 3 + bar_width/3 - sig_interval, y = sig2_y, yend = sig2_y),
+               color = "black", size = sig_seg_size) +  # 显著性
+  geom_segment(aes(x = 3 + sig_interval, xend = 3 + sig_interval, 
+                   y = sig1_y, yend = sig2_y - sig_height), 
+               color = "black", size = sig_seg_size) +  # 显著性
+  geom_segment(aes(x = 3 + bar_width/3 - sig_interval, xend = 3 + bar_width/3 - sig_interval, 
+                   y = sig1_y, yend = sig2_y - sig_height), 
+               color = "black", size = sig_seg_size) +  # 显著性
+  
+  geom_text(aes(x = 3 + bar_width/6, y = sig2_y + sig_seg_margin, label = "***"),
+            color = "black", size = sig_size) + # 显著性值
+  geom_segment(aes(x = 3 - bar_width/3 + sig_interval, xend = 3 + bar_width/3 - sig_interval, y = sig3_y, yend = sig3_y),
+               color = "black", size = sig_seg_size) +  # 显著性
+  geom_segment(aes(x = 3 - bar_width/3 + sig_interval, xend = 3 - bar_width/3 + sig_interval, 
+                   y = sig3_y, yend = sig3_y - sig_height), 
+               color = "black", size = sig_seg_size) +  # 显著性
+  geom_segment(aes(x = 3 + bar_width/3 - sig_interval, xend = 3 + bar_width/3 - sig_interval, 
+                   y = sig3_y, yend = sig3_y - sig_height), 
+               color = "black", size = sig_seg_size) +  # 显著性
+  geom_text(aes(x = 3, y = sig3_y + sig_seg_margin, label = "***"),
+            color = "black", size = sig_size) # 显著性值
+##########################################################################################
+
+# ggsave(".\\results\\exp3_alloc_avova_241226.pdf", device = cairo_pdf, plot = p2, width = width_in_inches, height = height_in_inches, units = "in")
+ggsave(".\\02_fig\\01_grati_descri_stats_bar_EXP2-2_CMPD_260129.svg", plot = p2, 
+       width = width_in_inches, height = height_in_inches, units = "in")
+
+```
+
+# Intention
+```{r EXP3_PMPD Allocation}
+# 读取 Excel 文件
+data <- read_excel(data_dir, sheet = 'Intention')
+
+
+#### 提取risky下三个情境的Gratitude/Allocation
+exp_data <- data[data$Outcome == 'HigherOutcome',]
+
+tmp_data <- data[data$Outcome == 'LowerOutcome',]
+exp_data <- rbind(exp_data, tmp_data)
+
+tmp_data <- data[data$Outcome == 'Uncertain',]
+exp_data <- rbind(exp_data, tmp_data)
+####
+
+### one-factor ANOVA
+print('【Exp3】')
+
+# 使用tapply计算平均值和标准差 
+means <- tapply(exp_data$Value, list(exp_data$Outcome, exp_data$Situation), mean)
+std_devs <- tapply(exp_data$Value, list(exp_data$Outcome, exp_data$Situation), sd)
+cat("Means:", means, '\n')
+cat("Standard Deviations:", std_devs, '\n')
+
+```
+
+```{r}
+# 执行单因素方差分析
+MANOVA(
+  exp_data, dv = "Value", subID = "SubID", within = c("Outcome","Situation"), sph.correction = 'GG') %>%
+  EMMEANS(effect = "Outcome", p.adjust = "bonferroni") %>%
+  EMMEANS(effect = "Situation", p.adjust = "bonferroni") %>%
+  EMMEANS(effect = "Outcome", by = "Situation",, p.adjust = "bonferroni")
+
+
+```
+
+
+## fig-Gratitude
+```{r, echo=TRUE}
+
+exp_data$Outcome <- factor(exp_data$Outcome, levels = c("LowerOutcome", "Uncertain", "HigherOutcome"))
+exp_data$Situation <- factor(exp_data$Situation, levels = c("Uncertain46", "Uncertain37", "Uncertain28"))
+
+# 计算每组的平均值和标准误差
+summary_data <- exp_data %>%
+  group_by(Outcome, Situation) %>%
+  summarize(mean_value = mean(Value,na.rm=T), se = sd(Value) / sqrt(length(Value)))
+
+summary_data$exp <- 'mean'
+
+sig1_y <- 85
+sig2_y <- 85
+sig3_y <- 89
+sig_seg_margin <- 0.6
+sig_ma_margin <- 1
+sig_interval <- 0.02
+sig_height <- 1
+
+
+p2 <- ggplot()+
+  # 绘制条形图和标准误差
+  geom_bar(data = summary_data, stat = "identity", aes(x = Situation, y = mean_value, fill = Outcome), 
+           width = bar_width,  position = position_dodge()) +
+
+  scale_fill_manual(values = c("#FFD06F", "#EF8A47", "#E76254")) +
+
+
+  geom_errorbar(data = summary_data, aes(x = Situation, group = Outcome, ymin = mean_value - se, ymax = mean_value + se),
+               width = 0.3,  # 调整errorbar的宽度
+               position = position_dodge(0.8), size = 1.5) +  # 与条形图对齐
+
+  xlab("Situation") + #横坐标名称
+  ylab("Intention") + #纵坐标名称
+  theme_classic() +  #去掉背景灰色
+  theme(
+    axis.title.x = element_text(size = title_x_size, margin = margin(t = title_margin)),
+    axis.text.x = element_text(size = text_x_size, margin = margin(t = text_margin)),
+    axis.title.y = element_text(size = title_y_size, margin = margin(r = title_margin)),
+    axis.text.y = element_text(size = text_y_size,margin = margin(r = text_margin)),
+    axis.line = element_line(color = "black", linewidth = 2)) +
+  # guides(
+  #   fill = guide_legend(
+  #     keywidth = unit(2, "cm"),
+  #     title = NULL)
+  # ) +
+  theme(
+    legend.position = c(0.5, 0.95),  # (x=0~1, y=0~1) 从左下角为 (0,0),
+    legend.direction = "horizontal",
+#     legend.spacing.x = unit(0.8, "cm"),
+    legend.key.width = unit(2.4, "cm"),
+    legend.title = element_blank(),
+    legend.text  = element_text(size = legend_size, margin = margin(r = 40,l = 10))
+  ) +
+
+  scale_y_continuous(limits = c(0, 100), breaks = seq(0, 90, by = 20)) +
+  # scale_x_discrete(labels = c("1" = "100%")) +
+  
+##########################################################################################
+  geom_segment(aes(x = 1 - bar_width/3 + sig_interval, xend = 1 - sig_interval, y = sig1_y, yend = sig1_y), 
+               color = "black", size = sig_seg_size) +  # 显著性
+  geom_segment(aes(x = 1 - bar_width/3 + sig_interval, xend = 1 - bar_width/3 + sig_interval, 
+                   y = sig1_y, yend = sig1_y - sig_height), 
+               color = "black", size = sig_seg_size) +  # 显著性
+  geom_segment(aes(x = 1 - sig_interval, xend = 1 - sig_interval, 
+                   y = sig1_y, yend = sig1_y - sig_height), 
+               color = "black", size = sig_seg_size) +  # 显著性
+  
+  geom_text(aes(x = 1 - bar_width/6, y = sig1_y + sig_seg_margin, label = "**"), 
+            color = "black", size = sig_size) +  # 显著性值
+  
+  geom_segment(aes(x = 1 + sig_interval, xend = 1 + bar_width/3 - sig_interval, y = sig2_y, yend = sig2_y),
+               color = "black", size = sig_seg_size) +  # 显著性
+  geom_segment(aes(x = 1 + sig_interval, xend = 1 + sig_interval, 
+                   y = sig1_y, yend = sig2_y - sig_height), 
+               color = "black", size = sig_seg_size) +  # 显著性
+  geom_segment(aes(x = 1 + bar_width/3 - sig_interval, xend = 1 + bar_width/3 - sig_interval, 
+                   y = sig1_y, yend = sig2_y - sig_height), 
+               color = "black", size = sig_seg_size) +  # 显著性
+  
+  geom_text(aes(x = 1 + bar_width/6, y = sig2_y + sig_seg_margin + sig_ma_margin, label = "#"),
+            color = "black", size = sig_ma_size) + # 显著性值
+  
+  geom_segment(aes(x = 1 - bar_width/3 + sig_interval, xend = 1 + bar_width/3 - sig_interval, y = sig3_y, yend = sig3_y),
+               color = "black", size = sig_seg_size) +  # 显著性
+  geom_segment(aes(x = 1 - bar_width/3 + sig_interval, xend = 1 - bar_width/3 + sig_interval, 
+                   y = sig3_y, yend = sig3_y - sig_height), 
+               color = "black", size = sig_seg_size) +  # 显著性
+  geom_segment(aes(x = 1 + bar_width/3 - sig_interval, xend = 1 + bar_width/3 - sig_interval, 
+                   y = sig3_y, yend = sig3_y - sig_height), 
+               color = "black", size = sig_seg_size) +  # 显著性
+  geom_text(aes(x = 1, y = sig3_y + sig_seg_margin, label = "***"),
+            color = "black", size = sig_size) + # 显著性值
+
+##########################################################################################
+
+  geom_segment(aes(x = 2 - bar_width/3 + sig_interval, xend = 2 - sig_interval, y = sig1_y, yend = sig1_y), 
+               color = "black", size = sig_seg_size) +  # 显著性
+  geom_segment(aes(x = 2 - bar_width/3 + sig_interval, xend = 2 - bar_width/3 + sig_interval, 
+                   y = sig1_y, yend = sig1_y - sig_height), 
+               color = "black", size = sig_seg_size) +  # 显著性
+  geom_segment(aes(x = 2 - sig_interval, xend = 2 - sig_interval, 
+                   y = sig1_y, yend = sig1_y - sig_height), 
+               color = "black", size = sig_seg_size) +  # 显著性
+  
+  geom_text(aes(x = 2 - bar_width/6, y = sig1_y + sig_seg_margin, label = "**"), 
+            color = "black", size = sig_size) +  # 显著性值
+  
+  geom_segment(aes(x = 2 + sig_interval, xend = 2 + bar_width/3 - sig_interval, y = sig2_y, yend = sig2_y),
+               color = "black", size = sig_seg_size) +  # 显著性
+  geom_segment(aes(x = 2 + sig_interval, xend = 2 + sig_interval, 
+                   y = sig1_y, yend = sig2_y - sig_height), 
+               color = "black", size = sig_seg_size) +  # 显著性
+  geom_segment(aes(x = 2 + bar_width/3 - sig_interval, xend = 2 + bar_width/3 - sig_interval, 
+                   y = sig1_y, yend = sig2_y - sig_height), 
+               color = "black", size = sig_seg_size) +  # 显著性
+  
+  geom_text(aes(x = 2 + bar_width/6, y = sig2_y + sig_seg_margin, label = "*"),
+            color = "black", size = sig_size) + # 显著性值
+  geom_segment(aes(x = 2 - bar_width/3 + sig_interval, xend = 2 + bar_width/3 - sig_interval, y = sig3_y, yend = sig3_y),
+               color = "black", size = sig_seg_size) +  # 显著性
+  geom_segment(aes(x = 2 - bar_width/3 + sig_interval, xend = 2 - bar_width/3 + sig_interval, 
+                   y = sig3_y, yend = sig3_y - sig_height), 
+               color = "black", size = sig_seg_size) +  # 显著性
+  geom_segment(aes(x = 2 + bar_width/3 - sig_interval, xend = 2 + bar_width/3 - sig_interval, 
+                   y = sig3_y, yend = sig3_y - sig_height), 
+               color = "black", size = sig_seg_size) +  # 显著性
+  geom_text(aes(x = 2, y = sig3_y + sig_seg_margin, label = "***"),
+            color = "black", size = sig_size) + # 显著性值
+##########################################################################################
+
+  geom_segment(aes(x = 3 - bar_width/3 + sig_interval, xend = 3 - sig_interval, y = sig1_y, yend = sig1_y), 
+               color = "black", size = sig_seg_size) +  # 显著性
+  geom_segment(aes(x = 3 - bar_width/3 + sig_interval, xend = 3 - bar_width/3 + sig_interval, 
+                   y = sig1_y, yend = sig1_y - sig_height), 
+               color = "black", size = sig_seg_size) +  # 显著性
+  geom_segment(aes(x = 3 - sig_interval, xend = 3 - sig_interval, 
+                   y = sig1_y, yend = sig1_y - sig_height), 
+               color = "black", size = sig_seg_size) +  # 显著性
+  
+  geom_text(aes(x = 3 - bar_width/6, y = sig1_y + sig_seg_margin, label = "*"), 
+            color = "black", size = sig_size) +  # 显著性值
+  
+  # geom_segment(aes(x = 3 + sig_interval, xend = 3 + bar_width/3 - sig_interval, y = sig2_y, yend = sig2_y),
+  #              color = "black", size = sig_seg_size) +  # 显著性
+  # geom_segment(aes(x = 3 + sig_interval, xend = 3 + sig_interval, 
+  #                  y = sig1_y, yend = sig2_y - sig_height), 
+  #              color = "black", size = sig_seg_size) +  # 显著性
+  # geom_segment(aes(x = 3 + bar_width/3 - sig_interval, xend = 3 + bar_width/3 - sig_interval, 
+  #                  y = sig1_y, yend = sig2_y - sig_height), 
+  #              color = "black", size = sig_seg_size) +  # 显著性
+  # 
+  # geom_text(aes(x = 3 + bar_width/6, y = sig2_y + sig_seg_margin, label = "***"),
+  #           color = "black", size = sig_size) + # 显著性值
+  geom_segment(aes(x = 3 - bar_width/3 + sig_interval, xend = 3 + bar_width/3 - sig_interval, y = sig3_y, yend = sig3_y),
+               color = "black", size = sig_seg_size) +  # 显著性
+  geom_segment(aes(x = 3 - bar_width/3 + sig_interval, xend = 3 - bar_width/3 + sig_interval, 
+                   y = sig3_y, yend = sig3_y - sig_height), 
+               color = "black", size = sig_seg_size) +  # 显著性
+  geom_segment(aes(x = 3 + bar_width/3 - sig_interval, xend = 3 + bar_width/3 - sig_interval, 
+                   y = sig3_y, yend = sig3_y - sig_height), 
+               color = "black", size = sig_seg_size) +  # 显著性
+  geom_text(aes(x = 3, y = sig3_y + sig_seg_margin, label = "**"),
+            color = "black", size = sig_size) # 显著性值
+##########################################################################################
+
+# ggsave(".\\results\\exp3_alloc_avova_241226.pdf", device = cairo_pdf, plot = p2, width = width_in_inches, height = height_in_inches, units = "in")
+ggsave(".\\02_fig\\01_intent_descri_stats_bar_EXP2-2_CMPD_260129.svg", plot = p2, 
+       width = width_in_inches, height = height_in_inches, units = "in")
+
+```
+

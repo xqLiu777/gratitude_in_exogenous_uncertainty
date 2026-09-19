@@ -1,0 +1,320 @@
+```{r packages}
+
+library(readxl)
+library(bruceR)
+library(ggplot2)#绘图工具
+library(openxlsx)
+
+```
+
+# param
+```{r}
+
+data_dir <- file.path("..", "figs_data", "svm_expression_241119.xlsx")
+
+pt_to_mm <- 0.57
+pt_to_mm_y <- 1.4
+mm_to_pt <- 2.8346
+
+width_in_inches <- 30
+height_in_inches <- 25
+
+jitter_dis <- 0.0
+
+
+point_jitter <- 0.02
+point_size <- 20
+point_alpha <- 0.15
+bar_linewidth <- 6
+
+bar_width <- 0.5
+dodge_width <- 0.6
+x_start <- 0.4
+
+```
+
+
+# Certain
+```{r}
+# 读取 Excel 文件
+exp_data <- read_excel(data_dir, sheet = 'certain')
+
+# 执行单因素方差分析
+MANOVA(exp_data, dv = "similarity", subID = "subID", within = c("situation", "cost"), sph.correction = 'GG') %>% 
+  EMMEANS(effect = c("cost", "situation"))%>%
+  EMMEANS(effect = c("cost"))%>%
+  EMMEANS(effect = c("situation"))
+
+```
+
+## data
+```{r, echo=TRUE}
+
+# 计算每组的平均值和标准误差
+summary_data <- exp_data %>%
+  group_by(situation, cost) %>%
+  summarize(mean_value = mean(similarity), se = sd(similarity) / sqrt(length(similarity)), .groups = "drop")
+
+
+
+summary_data$situation <- factor(summary_data$situation, levels = c("risky", "certain"))
+summary_data$cost <- factor(summary_data$cost, levels = c("two", "eight"))
+
+
+uncertain_data <- as.data.frame(matrix(nrow = 46))
+uncertain_data$y <- subset(exp_data, situation == "risky" & cost == "two")$similarity
+uncertain_data$y_end <- subset(exp_data, situation == "risky" & cost == "eight")$similarity
+uncertain_data$x <- 1 - dodge_width/4
+uncertain_data$x_end <- 1 + dodge_width/4
+
+certain_data <- as.data.frame(matrix(nrow = 46))
+certain_data$y <- subset(exp_data, situation == "certain" & cost == "two")$similarity
+certain_data$y_end <- subset(exp_data, situation == "certain" & cost == "eight")$similarity
+certain_data$x <- 2 - dodge_width/4
+certain_data$x_end <- 2 + dodge_width/4
+
+ccost2_mean <- as.double(summary_data[summary_data$cost == "two" & summary_data$situation == "certain" , "mean_value"][1])
+ccost8_mean <- as.double(summary_data[summary_data$cost == "eight" & summary_data$situation == "certain" , "mean_value"][1])
+rcost2_mean <- as.double(summary_data[summary_data$cost == "two" & summary_data$situation == "risky" , "mean_value"][1])
+rcost2_mean <- as.double(summary_data[summary_data$cost == "eight" & summary_data$situation == "risky" , "mean_value"][1])
+
+summary_data_fill <- summary_data %>%
+  filter(situation == "certain")
+
+```
+
+## fig
+```{r}
+
+
+p <- ggplot()+
+  # 绘制条形图和标准误差 
+  geom_hline(yintercept = 0, color = "gray", size = 3) +   # 添加水平线 , linetype = "dashed"
+  # 仅 Certain 条件加填充
+
+  geom_bar(data = summary_data, stat = "identity", aes(x = situation, y = mean_value, color = cost, group = cost), 
+           linewidth = bar_linewidth, 
+           fill = NA, width = bar_width, position = position_dodge(width = dodge_width)) +
+
+  geom_bar(
+    data = summary_data_fill,
+    stat = "identity",
+    aes(
+      x = situation,
+      y = mean_value,
+      fill = cost,
+      group = cost
+    ),
+    width = bar_width,
+    alpha = 0.2,
+    color = NA,
+    position = position_dodge(width = dodge_width)
+  ) +
+  
+  scale_color_manual(values = c("#4F81BD", "#D97742", "#4F81BD", "#D97742"),
+                       labels = c("two" = "Outcome-2", "eight" = "Outcome-8"),
+                       name = "") +  
+  scale_fill_manual(values = c("#9DC3E6", "#F3B082", "#9DC3E6", "#F3B082"),
+                       labels = c("two" = "Outcome-2", "eight" = "Outcome-8"),
+                       name = "") + 
+
+  geom_point(data = uncertain_data, aes(x=x, y=y), size = point_size, color = "#4F81BD", alpha = point_alpha, 
+             position=position_jitter(width=jitter_dis)) +
+  geom_point(data = uncertain_data, aes(x=x_end, y=y_end), size = point_size, color = "#D97742", alpha = point_alpha, 
+             position=position_jitter(width=jitter_dis)) +
+  geom_point(data = certain_data, aes(x=x, y=y), size = point_size, color = "#4F81BD", alpha = point_alpha,
+             position=position_jitter(width=jitter_dis)) +
+  geom_point(data = certain_data, aes(x=x_end, y=y_end), size = point_size, color = "#D97742", alpha = point_alpha, 
+             position=position_jitter(width=jitter_dis)) +
+ 
+  geom_errorbar(data = summary_data, aes(x = situation, ymin = mean_value - se, ymax = mean_value + se, fill = cost),
+                width = 0.15,  # 调整errorbar的宽度
+                position = position_dodge(width = dodge_width), size = 2.5) +  # 与条形图对齐
+# 
+# 
+# 
+  xlab("") + #横坐标名称
+  ylab("Predicted") + #纵坐标名称
+  theme_classic() + #去掉背景灰色
+  theme(
+    axis.title.y = element_text(size = 110, margin = margin(r = 20 * pt_to_mm)),  # 设置坐标轴名称的大小为100
+    # axis.title.x = element_text(size = 86),  # 设置坐标轴名称的大小为100
+    axis.text.y = element_text(size = 110, margin = margin(r = 50)),
+    axis.text.x = element_text(size = 110, margin = margin(t = 50)),
+  ) +
+  # theme(legend.position = "none") +
+  
+  scale_y_continuous(limits = c(-0.11, 0.10), breaks = seq(-0.10, 0.10, by = 0.05)) +
+  scale_x_discrete(labels = c("risky" = "Uncertain-\nto-Certain",  "certain" = "Initially-\nCertain")) +
+
+  # geom_segment(aes(x = 0.825, xend = 1.175, y = ccost8_mean + 0.041, yend = ccost8_mean + 0.041), color = "black", size = 1.5) +  
+  # geom_text(aes(x = 1, y = ccost8_mean + 0.049, label = "n.s."), color = "black", size = 36) +  # 在显著性线上方添加显著性值
+  # 
+  # geom_segment(aes(x = 1.825, xend = 2.175, y = ccost8_mean + 0.041, yend = ccost8_mean + 0.041), color = "black", size = 1.5) +  
+  # geom_text(aes(x = 2, y = ccost8_mean + 0.045, label = "***"), color = "black", size = 36) + # 在显著性线上方添加显著性值
+
+  theme(
+    axis.line = element_line(color = "black", linewidth = 2), 
+    legend.position = "none"
+    )   # 设置坐标轴颜色为黑色，宽度为2
+  
+  # guides(color = guide_legend(ncol = 2)) + # 设置图例为两列
+  # 
+  # theme(
+  #   legend.text = element_text(size = 100, margin = margin(0, 6, 0, 0.5,"cm")),
+  #   # legend.title = element_text(size = 70, margin = margin(0, 2, 0, 0,"cm")),
+  #   legend.position =  c(0.5, 0.97),
+  #   legend.key.width = unit(120, "points"),  # 设置图例项的宽度为1厘米
+  #   legend.key.height = unit(40, "points"),
+  #   # legend.key.size = unit(1, "cm")
+  #   # legend.key = element_rect(color = c("blue","black"), size = 2)
+  #   # legend.spacing.x = unit(20, "cm"),    # 调整图例项之间的间距
+  # )
+
+ggsave(".\\02_fig\\certain_pattern_expression_fig_250620-1.svg", plot = p, width = width_in_inches, height = height_in_inches, units = "in")
+
+
+```
+# Uncertain
+```{r}
+# 读取 Excel 文件
+exp_data <- read_excel(data_dir, sheet = 'uncertain')
+
+# 执行单因素方差分析
+MANOVA(exp_data, dv = "similarity", subID = "subID", within = c("situation", "cost"), sph.correction = 'GG') %>% 
+  EMMEANS(effect = c("cost", "situation"))%>%
+  EMMEANS(effect = c("cost"))%>%
+  EMMEANS(effect = c("situation"))
+
+```
+
+## data
+```{r, echo=TRUE}
+
+# 计算每组的平均值和标准误差
+summary_data <- exp_data %>%
+  group_by(situation, cost) %>%
+  summarize(mean_value = mean(similarity), se = sd(similarity) / sqrt(length(similarity)), .groups = "drop")
+
+summary_data$situation <- factor(summary_data$situation, levels = c("risky", "certain"))
+summary_data$cost <- factor(summary_data$cost, levels = c("two", "eight"))
+
+uncertain_data <- as.data.frame(matrix(nrow = 46))
+uncertain_data$y <- subset(exp_data, situation == "risky" & cost == "two")$similarity
+uncertain_data$y_end <- subset(exp_data, situation == "risky" & cost == "eight")$similarity
+uncertain_data$x <- 1 - dodge_width/4
+uncertain_data$x_end <- 1 + dodge_width/4
+
+certain_data <- as.data.frame(matrix(nrow = 46))
+certain_data$y <- subset(exp_data, situation == "certain" & cost == "two")$similarity
+certain_data$y_end <- subset(exp_data, situation == "certain" & cost == "eight")$similarity
+certain_data$x <- 2 - dodge_width/4
+certain_data$x_end <- 2 + dodge_width/4
+
+
+ccost2_mean <- as.double(summary_data[summary_data$cost == "two" & summary_data$situation == "certain" , "mean_value"][1])
+ccost8_mean <- as.double(summary_data[summary_data$cost == "eight" & summary_data$situation == "certain" , "mean_value"][1])
+rcost2_mean <- as.double(summary_data[summary_data$cost == "two" & summary_data$situation == "risky" , "mean_value"][1])
+rcost8_mean <- as.double(summary_data[summary_data$cost == "eight" & summary_data$situation == "risky" , "mean_value"][1])
+
+
+summary_data_fill <- summary_data %>%
+  filter(situation == "certain")
+
+```
+
+## fig
+```{r}
+
+p <- ggplot()+
+  # 绘制条形图和标准误差 
+  # 绘制条形图和标准误差 
+  geom_hline(yintercept = 0, color = "gray", size = 3) +   # 添加水平线 , linetype = "dashed"
+  geom_bar(data = summary_data, stat = "identity", aes(x = situation, y = mean_value, color = cost, group = cost), 
+           linewidth = bar_linewidth, 
+           fill = NA, width = bar_width, position = position_dodge(width = dodge_width)) +
+
+  geom_bar(
+    data = summary_data_fill,
+    stat = "identity",
+    aes(
+      x = situation,
+      y = mean_value,
+      fill = cost,
+      group = cost
+    ),
+    width = bar_width,
+    alpha = 0.2,
+    color = NA,
+    position = position_dodge(width = dodge_width)
+  ) +
+  
+  scale_color_manual(values = c("#4F81BD", "#D97742", "#4F81BD", "#D97742"),
+                       labels = c("two" = "Outcome-2", "eight" = "Outcome-8"),
+                       name = "") +  
+  scale_fill_manual(values = c("#9DC3E6", "#F3B082", "#9DC3E6", "#F3B082"),
+                       labels = c("two" = "Outcome-2", "eight" = "Outcome-8"),
+                       name = "") + 
+
+
+  geom_point(data = uncertain_data, aes(x=x, y=y), size = point_size, color = "#4F81BD", alpha = point_alpha, 
+             position=position_jitter(width=jitter_dis)) +
+  geom_point(data = uncertain_data, aes(x=x_end, y=y_end), size = point_size, color = "#D97742", alpha = point_alpha, 
+             position=position_jitter(width=jitter_dis)) +
+  geom_point(data = certain_data, aes(x=x, y=y), size = point_size, color = "#4F81BD", alpha = point_alpha,
+             position=position_jitter(width=jitter_dis)) +
+  geom_point(data = certain_data, aes(x=x_end, y=y_end), size = point_size, color = "#D97742", alpha = point_alpha, 
+             position=position_jitter(width=jitter_dis)) +
+ 
+  geom_errorbar(data = summary_data, aes(x = situation, ymin = mean_value - se, ymax = mean_value + se, fill = cost),
+                width = 0.15,  # 调整errorbar的宽度
+                position = position_dodge(width = dodge_width), size = 2.5) +  # 与条形图对齐
+ 
+  geom_errorbar(data = summary_data, aes(x = situation, ymin = mean_value - se, ymax = mean_value + se, fill = cost),
+                width = 0.15,  # 调整errorbar的宽度
+                position = position_dodge(width = dodge_width), size = 2.5) +  # 与条形图对齐
+# 
+# 
+# 
+  xlab("") + #横坐标名称
+  ylab("Predicted") + #纵坐标名称
+  theme_classic() + #去掉背景灰色
+  theme(
+    axis.title.y = element_text(size = 110, margin = margin(r = 20 * pt_to_mm)),  # 设置坐标轴名称的大小为100
+    # axis.title.x = element_text(size = 86),  # 设置坐标轴名称的大小为100
+    axis.text.y = element_text(size = 110, margin = margin(r = 50)),
+    axis.text.x = element_text(size = 110, margin = margin(t = 50)),
+  ) +
+  # theme(legend.position = "none") +
+  
+  scale_y_continuous(limits = c(-0.11, 0.10), breaks = seq(-0.10, 0.10, by = 0.05)) +
+  scale_x_discrete(labels = c("risky" = "Uncertain-\nto-Certain",  "certain" = "Initially-\nCertain")) +
+
+  # geom_segment(aes(x = 0.825, xend = 1.175, y = rcost8_mean + 0.041, yend = rcost8_mean + 0.041), color = "black", size = 1.5) +  
+  # geom_text(aes(x = 1, y = rcost8_mean + 0.045, label = "***"), color = "black", size = 36) +  # 在显著性线上方添加显著性值
+  # 
+  # geom_segment(aes(x = 1.825, xend = 2.175, y = rcost8_mean + 0.041, yend = rcost8_mean + 0.041), color = "black", size = 1.5) +  
+  # geom_text(aes(x = 2, y = rcost8_mean + 0.045, label = "*"), color = "black", size = 36) + # 在显著性线上方添加显著性值
+
+  theme(
+    axis.line = element_line(color = "black", linewidth = 2), 
+    legend.position = "none"
+    )   # 设置坐标轴颜色为黑色，宽度为2
+  
+  # guides(color = guide_legend(ncol = 2)) + # 设置图例为两列
+  # 
+  # theme(
+  #   legend.text = element_text(size = 100, margin = margin(0, 6, 0, 0.5,"cm")),
+  #   # legend.title = element_text(size = 70, margin = margin(0, 2, 0, 0,"cm")),
+  #   legend.position =  c(0.5, 0.97),
+  #   legend.key.width = unit(120, "points"),  # 设置图例项的宽度为1厘米
+  #   legend.key.height = unit(40, "points"),
+  #   # legend.key.size = unit(1, "cm")
+  #   # legend.key = element_rect(color = c("blue","black"), size = 2)
+  #   # legend.spacing.x = unit(20, "cm"),    # 调整图例项之间的间距
+  # )
+
+ggsave(".\\02_fig\\uncertain_pattern_expression_fig_260620.svg", plot = p, width = width_in_inches, height = height_in_inches, units = "in")
+
+
+```
